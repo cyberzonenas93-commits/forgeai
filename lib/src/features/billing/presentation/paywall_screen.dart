@@ -6,7 +6,7 @@ import '../../../core/theme/forge_palette.dart';
 import '../../../shared/widgets/forge_widgets.dart';
 import '../domain/forge_billing_service.dart';
 
-class PaywallScreen extends StatelessWidget {
+class PaywallScreen extends StatefulWidget {
   const PaywallScreen({
     super.key,
     required this.billingService,
@@ -21,8 +21,37 @@ class PaywallScreen extends StatelessWidget {
   final VoidCallback? onRestore;
 
   @override
-  Widget build(BuildContext context) {
+  State<PaywallScreen> createState() => _PaywallScreenState();
+}
+
+class _PaywallScreenState extends State<PaywallScreen> {
+  final Map<ForgePlanId, String> _localizedPrices = <ForgePlanId, String>{};
+
+  @override
+  void initState() {
+    super.initState();
     ForgeTelemetry.instance.logEvent('forge_paywall_viewed');
+    _loadLocalizedPrices();
+  }
+
+  Future<void> _loadLocalizedPrices() async {
+    final next = <ForgePlanId, String>{};
+    for (final plan in forgePlans) {
+      final label = await widget.billingService.localizedPriceForPlan(plan.id);
+      if (label != null && label.trim().isNotEmpty) {
+        next[plan.id] = label.trim();
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _localizedPrices
+        ..clear()
+        ..addAll(next);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
@@ -45,12 +74,13 @@ class PaywallScreen extends StatelessWidget {
             const SizedBox(height: 20),
             ...forgePlans.map((plan) => _PlanCard(
                   plan: plan,
-                  isCurrent: plan.id == currentPlanId,
-                  onSelect: () => onUpgrade?.call(plan.id),
+                  localizedPriceLabel: _localizedPrices[plan.id],
+                  isCurrent: plan.id == widget.currentPlanId,
+                  onSelect: () => widget.onUpgrade?.call(plan.id),
                 )),
             const SizedBox(height: 24),
             TextButton(
-              onPressed: onRestore,
+              onPressed: widget.onRestore,
               child: Text(
                 'Restore purchases',
                 style: TextStyle(color: ForgePalette.glowAccent),
@@ -66,11 +96,13 @@ class PaywallScreen extends StatelessWidget {
 class _PlanCard extends StatelessWidget {
   const _PlanCard({
     required this.plan,
+    required this.localizedPriceLabel,
     required this.isCurrent,
     required this.onSelect,
   });
 
   final ForgePlanDefinition plan;
+  final String? localizedPriceLabel;
   final bool isCurrent;
   final VoidCallback? onSelect;
 
@@ -96,7 +128,8 @@ class _PlanCard extends StatelessWidget {
                 const Spacer(),
                 if (plan.priceUsd > 0)
                   Text(
-                    '\$${plan.priceUsd.toStringAsFixed(2)}/mo',
+                    localizedPriceLabel ??
+                        '\$${plan.priceUsd.toStringAsFixed(2)}/mo',
                     style: theme.titleMedium?.copyWith(
                       color: ForgePalette.glowAccent,
                     ),

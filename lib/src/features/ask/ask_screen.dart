@@ -7,8 +7,10 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../../core/branding/app_branding.dart';
 import '../../core/theme/forge_palette.dart';
+import '../../shared/forge_user_friendly_error.dart';
 import '../../shared/widgets/forge_widgets.dart';
 import 'prompt_git_intents.dart';
+import '../onboarding/data/onboarding_storage.dart';
 import '../workspace/application/forge_workspace_controller.dart';
 import '../workspace/domain/forge_workspace_entities.dart';
 import '../workspace/domain/forge_workspace_state.dart';
@@ -41,6 +43,8 @@ class _AskScreenState extends State<AskScreen> {
   );
   final TextEditingController _newBranchController = TextEditingController();
   String? _selectedCommitBranch;
+  /// Hides the “uncommitted prompt changes” banner until the next apply or trace change.
+  String? _suppressedCommitBannerKey;
   final ImagePicker _imagePicker = ImagePicker();
   final stt.SpeechToText _speechToText = stt.SpeechToText();
   final List<ForgePromptMediaAttachment> _pendingMedia =
@@ -50,6 +54,8 @@ class _AskScreenState extends State<AskScreen> {
   bool _isListening = false;
   String _speechSeedText = '';
   bool _showHeaderChrome = true;
+  DeployAuthMethodOption _deployAuthMethod = DeployAuthMethodOption.token;
+  bool _hasConfiguredDeploySetup = false;
 
   /// Bumps when thread / messages / loading change — keep view pinned to latest
   /// (WhatsApp-style [ListView.reverse] anchor at composer).
@@ -62,30 +68,34 @@ class _AskScreenState extends State<AskScreen> {
     FocusManager.instance.primaryFocus?.unfocus();
   }
 
-  String _compactError(Object error) {
-    final raw = error.toString().trim();
-    if (raw.isEmpty) {
-      return 'Unknown error.';
-    }
-    var text = raw;
-    final stackIndex = text.indexOf('\n#0');
-    if (stackIndex > 0) {
-      text = text.substring(0, stackIndex).trim();
-    }
-    if (text.contains('Remote provider error (404)')) {
-      return 'Workflow was not found in this repository. Install `run-app.yml` first, then try again.';
-    }
-    const maxLen = 280;
-    if (text.length > maxLen) {
-      return '${text.substring(0, maxLen)}...';
-    }
-    return text;
-  }
-
   @override
   void initState() {
     super.initState();
     _inputController.addListener(_onInputChanged);
+    unawaited(_loadDeploySetupPreference());
+  }
+
+  Future<void> _loadDeploySetupPreference() async {
+    final storage = await OnboardingStorage.create();
+    if (!mounted) return;
+    setState(() {
+      _deployAuthMethod = storage.deployAuthMethod;
+      _hasConfiguredDeploySetup = storage.hasConfiguredDeploySetup;
+    });
+  }
+
+  String _deploySecretGuidance() {
+    if (_deployAuthMethod == DeployAuthMethodOption.serviceAccount) {
+      return 'Add GitHub **Actions** secret **`FIREBASE_SERVICE_ACCOUNT`** '
+          '(recommended service account JSON), then run **deploy functions**.';
+    }
+    return 'Add GitHub **Actions** secret **`FIREBASE_TOKEN`** '
+        '(easy: `firebase login:ci`), then run **deploy functions**.';
+  }
+
+  String _deploySetupSuffix() {
+    if (_hasConfiguredDeploySetup) return '';
+    return ' If needed, set this once in onboarding deploy setup.';
   }
 
   void _onInputChanged() {
@@ -107,6 +117,174 @@ class _AskScreenState extends State<AskScreen> {
     _newBranchController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  String _commitBannerKey(ForgePromptAgentTrace trace) =>
+      '${trace.threadId}|${trace.recordedAt.millisecondsSinceEpoch}';
+
+  List<String> _sortedBranches(ForgeWorkspaceState state) {
+    final repo = state.selectedRepository;
+    return <String>{
+      if (repo?.defaultBranch != null) repo!.defaultBranch,
+      ...?repo?.branches,
+      if (state.selectedBranch != null) state.selectedBranch!,
+    }.where((b) => b.trim().isNotEmpty).toList()..sort();
+  }
+
+  Future<void> _openCommitPushSheet(ForgeWorkspaceState state) async {
+    final repo = state.selectedRepository;
+    if (repo == null || !mounted) {
+      return;
+    }
+    final branches = _sortedBranches(state);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, sheetSetState) {
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                8,
+                16,
+                16 + MediaQuery.viewInsetsOf(context).bottom,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Commit & push to GitHub',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Pick the branch (or create a new one) and a commit message. '
+                      'Your remote will not update until this succeeds.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: ForgePalette.textSecondary,
+                          ),
+                    ),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      initialValue: (_selectedCommitBranch == _newBranchOption)
+                          ? _newBranchOption
+                          : (() {
+                              if (_selectedCommitBranch != null &&
+                                  branches.contains(_selectedCommitBranch)) {
+                                return _selectedCommitBranch;
+                              }
+                              if (state.selectedBranch != null &&
+                                  branches.contains(state.selectedBranch)) {
+                                return state.selectedBranch;
+                              }
+                              return branches.isNotEmpty
+                                  ? branches.first
+                                  : null;
+                            }()),
+                      hint: const Text('Select branch'),
+                      items: [
+                        ...branches.map(
+                          (b) => DropdownMenuItem(value: b, child: Text(b)),
+                        ),
+                        const DropdownMenuItem(
+                          value: _newBranchOption,
+                          child: Text('New branch…'),
+                        ),
+                      ],
+                      onChanged: _isWorking
+                          ? null
+                          : (value) {
+                              sheetSetState(() {
+                                _selectedCommitBranch = value;
+                              });
+                              setState(() {
+                                _selectedCommitBranch = value;
+                              });
+                            },
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Branch',
+                      ),
+                    ),
+                    if (_selectedCommitBranch == _newBranchOption) ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _newBranchController,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'New branch name',
+                          hintText: 'feature/my-change',
+                        ),
+                        onChanged: (_) => sheetSetState(() {}),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _commitMessageController,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Commit message',
+                      ),
+                      onChanged: (_) => sheetSetState(() {}),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ForgeSecondaryButton(
+                            label: 'Cancel',
+                            onPressed: _isWorking
+                                ? null
+                                : () => Navigator.of(sheetContext).pop(),
+                            expanded: true,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ForgePrimaryButton(
+                            label: _isWorking
+                                ? 'Working…'
+                                : 'Commit & push',
+                            icon: Icons.commit_rounded,
+                            onPressed: _isWorking
+                                ? null
+                                : () async {
+                                    final ok = await _commitAndPush(state);
+                                    if (!mounted) {
+                                      return;
+                                    }
+                                    if (ok) {
+                                      final trace =
+                                          widget.controller.value.promptLastAgentTrace;
+                                      if (trace != null &&
+                                          trace.appliedEdits.isNotEmpty) {
+                                        setState(() {
+                                          _suppressedCommitBannerKey =
+                                              _commitBannerKey(trace);
+                                        });
+                                      }
+                                      if (sheetContext.mounted) {
+                                        Navigator.of(sheetContext).pop();
+                                      }
+                                    }
+                                  },
+                            expanded: true,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   ForgePromptThread? _currentThread(ForgeWorkspaceState state) {
@@ -179,7 +357,7 @@ class _AskScreenState extends State<AskScreen> {
       });
     } catch (e) {
       widget.controller.addPromptAssistantMessage(
-        'Media attach failed: ${_compactError(e)}',
+        'Media attach failed: ${forgeUserFriendlyMessage(e, maxLength: 280)}',
       );
     }
   }
@@ -271,7 +449,7 @@ class _AskScreenState extends State<AskScreen> {
       widget.controller.addPromptAssistantMessage(msg);
     } catch (e) {
       widget.controller.addPromptAssistantMessage(
-        'Run failed: ${_compactError(e)}',
+        'Run failed: ${forgeUserFriendlyMessage(e, maxLength: 280)}',
       );
     } finally {
       if (mounted) setState(() => _isWorking = false);
@@ -289,12 +467,15 @@ class _AskScreenState extends State<AskScreen> {
         workflowName: workflow,
       );
       final msg = logsUrl == null || logsUrl.isEmpty
-          ? '**Deploy functions** — workflow `$workflow` dispatched. Ensure GitHub repo **Actions** secrets include either `FIREBASE_TOKEN` (easy: `firebase login:ci`) or `FIREBASE_SERVICE_ACCOUNT` (recommended). If the file is missing, say **install deploy workflow** or use Prompt tools.'
+          ? '**Deploy functions** — workflow `$workflow` dispatched. '
+              '${_deploySecretGuidance()}'
+              ' If the file is missing, say **install deploy workflow** or use Prompt tools.'
+              '${_deploySetupSuffix()}'
           : '**Deploy functions** — workflow dispatched. Logs: $logsUrl';
       widget.controller.addPromptAssistantMessage(msg);
     } catch (e) {
       widget.controller.addPromptAssistantMessage(
-        'Deploy failed: ${_compactError(e)}',
+        'Deploy failed: ${forgeUserFriendlyMessage(e, maxLength: 280)}',
       );
     } finally {
       if (mounted) setState(() => _isWorking = false);
@@ -371,7 +552,7 @@ class _AskScreenState extends State<AskScreen> {
       );
     } catch (e) {
       widget.controller.addPromptAssistantMessage(
-        'Install failed: ${_compactError(e)}',
+        'Install failed: ${forgeUserFriendlyMessage(e, maxLength: 280)}',
       );
     } finally {
       if (mounted) setState(() => _isWorking = false);
@@ -397,22 +578,22 @@ class _AskScreenState extends State<AskScreen> {
       );
       widget.controller.addPromptAssistantMessage(
         'Installed `.github/workflows/deploy-functions.yml` on `${draft.branchName}`. '
-        'Add GitHub **Actions** secret **`FIREBASE_TOKEN`** (easy: `firebase login:ci`) '
-        'or **`FIREBASE_SERVICE_ACCOUNT`** (recommended), then say **deploy functions** to run it.',
+        '${_deploySecretGuidance()}'
+        '${_deploySetupSuffix()}',
       );
     } catch (e) {
       widget.controller.addPromptAssistantMessage(
-        'Install failed: ${_compactError(e)}',
+        'Install failed: ${forgeUserFriendlyMessage(e, maxLength: 280)}',
       );
     } finally {
       if (mounted) setState(() => _isWorking = false);
     }
   }
 
-  Future<void> _commitAndPush(ForgeWorkspaceState state) async {
+  Future<bool> _commitAndPush(ForgeWorkspaceState state) async {
     final repo = state.selectedRepository;
     if (repo == null || _isWorking) {
-      return;
+      return false;
     }
 
     final branch =
@@ -442,10 +623,12 @@ class _AskScreenState extends State<AskScreen> {
       widget.controller.addPromptAssistantMessage(
         'Committed and pushed to $branch with message: "$commitMsg".',
       );
+      return true;
     } catch (e) {
       widget.controller.addPromptAssistantMessage(
-        'Commit/push failed: ${_compactError(e)}. Make sure a file is open and has changes, then try again.',
+        'Commit/push failed: ${forgeUserFriendlyMessage(e, maxLength: 280)}. Make sure a file is open and has changes, then try again.',
       );
+      return false;
     } finally {
       if (mounted) setState(() => _isWorking = false);
     }
@@ -474,7 +657,7 @@ class _AskScreenState extends State<AskScreen> {
       if (!mounted) return;
       _scrollTranscriptToEnd();
     } catch (e) {
-      widget.controller.addPromptAssistantMessage('Error: ${_compactError(e)}');
+      widget.controller.addPromptAssistantMessage('Error: ${forgeUserFriendlyMessage(e, maxLength: 280)}');
     }
   }
 
@@ -571,11 +754,6 @@ class _AskScreenState extends State<AskScreen> {
 
   Future<void> _openToolsSheet(ForgeWorkspaceState state) async {
     final repo = state.selectedRepository;
-    final branches = <String>{
-      if (repo?.defaultBranch != null) repo!.defaultBranch,
-      ...?repo?.branches,
-      if (state.selectedBranch != null) state.selectedBranch!,
-    }.where((b) => b.trim().isNotEmpty).toList();
 
     await showModalBottomSheet<void>(
       context: context,
@@ -682,72 +860,25 @@ class _AskScreenState extends State<AskScreen> {
                     'Commit & push',
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    initialValue: (_selectedCommitBranch == _newBranchOption)
+                  const SizedBox(height: 6),
+                  Text(
+                    'Nothing is on GitHub until you commit and push. '
+                    'Choose a branch (or create one) and your message in the next step.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: ForgePalette.textSecondary,
+                        ),
+                  ),
+                  const SizedBox(height: 12),
+                  ForgePrimaryButton(
+                    label: 'Choose branch & commit…',
+                    icon: Icons.commit_rounded,
+                    onPressed: repo == null || _isWorking
                         ? null
-                        : (() {
-                            if (_selectedCommitBranch != null &&
-                                branches.contains(_selectedCommitBranch)) {
-                              return _selectedCommitBranch;
-                            }
-                            if (branches.isNotEmpty) return branches.first;
-                            return null;
-                          }()),
-                    hint: const Text('Select branch'),
-                    items: [
-                      ...branches.map(
-                        (b) => DropdownMenuItem(value: b, child: Text(b)),
-                      ),
-                      const DropdownMenuItem(
-                        value: _newBranchOption,
-                        child: Text('New branch...'),
-                      ),
-                    ],
-                    onChanged: repo == null || _isWorking
-                        ? null
-                        : (value) {
-                            sheetSetState(() {
-                              _selectedCommitBranch = value;
-                            });
-                            setState(() {
-                              _selectedCommitBranch = value;
-                            });
+                        : () {
+                            Navigator.of(context).pop();
+                            _openCommitPushSheet(state);
                           },
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      labelText: 'Branch',
-                    ),
-                  ),
-                  if (_selectedCommitBranch == _newBranchOption) ...[
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _newBranchController,
-                      decoration: const InputDecoration(
-                        border: OutlineInputBorder(),
-                        labelText: 'New branch name',
-                        hintText: 'feature/my-change',
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _commitMessageController,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      labelText: 'Commit message',
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: ForgePrimaryButton(
-                      label: _isWorking ? 'Committing...' : 'Commit & push',
-                      icon: Icons.commit_rounded,
-                      onPressed: repo == null || _isWorking
-                          ? null
-                          : () => _commitAndPush(state),
-                    ),
+                    expanded: true,
                   ),
                 ],
               ),
@@ -879,6 +1010,12 @@ class _AskScreenState extends State<AskScreen> {
           _scrollTranscriptToEnd();
         }
         final tokenBalance = state.wallet.balance.toInt();
+        final pendingCommitTrace = state.promptLastAgentTrace;
+        final showUncommittedBanner = pendingCommitTrace != null &&
+            pendingCommitTrace.appliedEdits.isNotEmpty &&
+            _suppressedCommitBannerKey !=
+                _commitBannerKey(pendingCommitTrace);
+        final repoForCommit = state.selectedRepository;
 
         return Scaffold(
           backgroundColor: Colors.transparent,
@@ -947,7 +1084,8 @@ class _AskScreenState extends State<AskScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'Each reply uses tokens ($tokenBalance available). Use Code → AI edit for file changes.',
+                                  'Each reply uses tokens ($tokenBalance available). '
+                                  'Prompt can save files here; commit & push ships them to GitHub.',
                                   style: Theme.of(context).textTheme.labelSmall
                                       ?.copyWith(
                                         color: ForgePalette.textSecondary,
@@ -1028,6 +1166,101 @@ class _AskScreenState extends State<AskScreen> {
                     child: Column(
                       children: [
                         const Divider(height: 1),
+                        if (showUncommittedBanner)
+                          Material(
+                            color:
+                                ForgePalette.glowAccent.withValues(alpha: 0.12),
+                            child: Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(14, 12, 10, 12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Icon(
+                                        Icons.cloud_off_rounded,
+                                        size: 22,
+                                        color: ForgePalette.glowAccent,
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Not on GitHub yet',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleSmall
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Prompt saved ${pendingCommitTrace.appliedEdits.length} file change(s) in this app only. Commit and push to update your remote.',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(
+                                                    color: ForgePalette
+                                                        .textSecondary,
+                                                  ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    alignment: WrapAlignment.end,
+                                    children: [
+                                      TextButton(
+                                        onPressed: isBusy
+                                            ? null
+                                            : () {
+                                                setState(() {
+                                                  _suppressedCommitBannerKey =
+                                                      _commitBannerKey(
+                                                    pendingCommitTrace,
+                                                  );
+                                                });
+                                              },
+                                        child: const Text('Dismiss'),
+                                      ),
+                                      if (widget.onSwitchToEditorTab != null)
+                                        TextButton(
+                                          onPressed: isBusy
+                                              ? null
+                                              : () => widget
+                                                  .onSwitchToEditorTab!(),
+                                          child: const Text('Review in Code'),
+                                        ),
+                                      FilledButton.icon(
+                                        onPressed: isBusy ||
+                                                repoForCommit == null
+                                            ? null
+                                            : () =>
+                                                _openCommitPushSheet(state),
+                                        icon: const Icon(
+                                          Icons.commit_rounded,
+                                          size: 20,
+                                        ),
+                                        label: const Text('Commit & push'),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         Expanded(
                           child: messages.isEmpty && !state.isPromptLoading
                               ? Center(

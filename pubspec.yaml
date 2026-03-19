@@ -114,11 +114,13 @@ flutter:
 
 flutter_launcher_icons:
   android: true
-  ios: false
+  ios: true
   image_path: "assets/branding/forge_mark.png"
+  image_path_ios: "assets/branding/forge_ios_icon.png"
   adaptive_icon_background: "#0B0B0B"
   adaptive_icon_foreground: "assets/branding/forge_mark.png"
   remove_alpha_ios: true
+  background_color_ios: "#0B0B0B"
 
 flutter_native_splash:
   color: "#0B0B0B"

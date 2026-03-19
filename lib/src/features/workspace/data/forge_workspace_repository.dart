@@ -780,6 +780,7 @@ class ForgeWorkspaceRepository {
     final trace = data['trace'];
     final inspectedFiles = <String>[];
     final plannedEdits = <ForgePromptPlannedEdit>[];
+    final appliedEdits = <ForgePromptAppliedEdit>[];
     if (trace is Map<Object?, Object?>) {
       final traceMap = trace.map((key, value) => MapEntry('$key', value));
       final inspectedRaw = traceMap['inspectedFiles'];
@@ -811,11 +812,28 @@ class ForgeWorkspaceRepository {
           }
         }
       }
+      final appliedRaw = traceMap['appliedEdits'];
+      if (appliedRaw is List) {
+        for (final item in appliedRaw) {
+          if (item is Map) {
+            final map = item.map((key, value) => MapEntry('$key', value));
+            final path = (map['path'] as String?)?.trim() ?? '';
+            final action = (map['action'] as String?)?.trim() ?? '';
+            if (path.isEmpty) {
+              continue;
+            }
+            appliedEdits.add(
+              ForgePromptAppliedEdit(path: path, action: action),
+            );
+          }
+        }
+      }
     }
     return ForgeAskRepoResult(
       reply: reply is String ? reply : '',
       inspectedFiles: inspectedFiles,
       plannedEdits: plannedEdits,
+      appliedEdits: appliedEdits,
     );
   }
 

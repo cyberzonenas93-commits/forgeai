@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../features/auth/application/auth_controller.dart';
 import '../../shared/forge_models.dart';
+import '../../shared/forge_user_friendly_error.dart';
 import '../observability/forge_telemetry.dart';
 import 'forge_push_service.dart';
 
@@ -126,7 +127,7 @@ class ForgePushController extends ValueNotifier<ForgePushState> {
       await _handleRegistration(registration);
       value = value.copyWith(isInitialized: true, clearError: true);
     } catch (error, stackTrace) {
-      value = value.copyWith(errorMessage: error.toString());
+      value = value.copyWith(errorMessage: forgeUserFriendlyMessage(error));
       unawaited(
         _telemetry.recordError(
           error,
@@ -159,7 +160,7 @@ class ForgePushController extends ValueNotifier<ForgePushState> {
     } catch (error, stackTrace) {
       value = value.copyWith(
         isRequestingPermission: false,
-        errorMessage: error.toString(),
+        errorMessage: forgeUserFriendlyMessage(error),
       );
       unawaited(
         _telemetry.recordError(

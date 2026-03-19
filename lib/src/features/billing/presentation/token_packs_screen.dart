@@ -22,11 +22,30 @@ class TokenPacksScreen extends StatefulWidget {
 
 class _TokenPacksScreenState extends State<TokenPacksScreen> {
   ForgeTopUpPackId? _purchasingPackId;
+  final Map<ForgeTopUpPackId, String> _localizedPrices =
+      <ForgeTopUpPackId, String>{};
 
   @override
   void initState() {
     super.initState();
     ForgeTelemetry.instance.logEvent('forge_token_packs_viewed');
+    _loadLocalizedPrices();
+  }
+
+  Future<void> _loadLocalizedPrices() async {
+    final next = <ForgeTopUpPackId, String>{};
+    for (final pack in forgeTopUpPacks) {
+      final label = await widget.billingService.localizedPriceForPack(pack.id);
+      if (label != null && label.trim().isNotEmpty) {
+        next[pack.id] = label.trim();
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _localizedPrices
+        ..clear()
+        ..addAll(next);
+    });
   }
 
   Future<void> _handlePurchase(ForgeTopUpPackId packId) async {
@@ -98,6 +117,7 @@ class _TokenPacksScreenState extends State<TokenPacksScreen> {
             const SizedBox(height: 20),
             ...forgeTopUpPacks.map((pack) => _PackCard(
                   pack: pack,
+                  localizedPriceLabel: _localizedPrices[pack.id],
                   busy: _purchasingPackId == pack.id,
                   anyBusy: _purchasingPackId != null,
                   onPurchase: () => _handlePurchase(pack.id),
@@ -112,12 +132,14 @@ class _TokenPacksScreenState extends State<TokenPacksScreen> {
 class _PackCard extends StatelessWidget {
   const _PackCard({
     required this.pack,
+    required this.localizedPriceLabel,
     required this.onPurchase,
     required this.busy,
     required this.anyBusy,
   });
 
   final ForgeTopUpPackDefinition pack;
+  final String? localizedPriceLabel;
   final VoidCallback onPurchase;
   final bool busy;
   final bool anyBusy;
@@ -142,7 +164,7 @@ class _PackCard extends StatelessWidget {
                 ),
                 const Spacer(),
                 Text(
-                  '\$${pack.priceUsd.toStringAsFixed(0)}',
+                  localizedPriceLabel ?? '\$${pack.priceUsd.toStringAsFixed(0)}',
                   style: theme.titleLarge?.copyWith(
                     color: ForgePalette.glowAccent,
                   ),

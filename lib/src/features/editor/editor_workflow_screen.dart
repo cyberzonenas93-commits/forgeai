@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../core/theme/forge_palette.dart';
 import '../../shared/forge_models.dart';
+import '../../shared/forge_user_friendly_error.dart';
 import '../../shared/widgets/forge_widgets.dart';
 import '../ai/ai_task_screen.dart';
 import '../diff/diff_review_screen.dart';
@@ -129,7 +130,11 @@ class _EditorWorkflowScreenState extends State<EditorWorkflowScreen> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Could not open file: $e')));
+        ).showSnackBar(
+          SnackBar(
+            content: Text('Could not open file: ${forgeUserFriendlyMessage(e)}'),
+          ),
+        );
       }
     }
   }
@@ -320,7 +325,13 @@ class _EditorWorkflowScreenState extends State<EditorWorkflowScreen> {
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Could not create file: $error')));
+      ).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not create file: ${forgeUserFriendlyMessage(error)}',
+          ),
+        ),
+      );
     }
   }
 
@@ -344,7 +355,11 @@ class _EditorWorkflowScreenState extends State<EditorWorkflowScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not create folder: $error')),
+        SnackBar(
+          content: Text(
+            'Could not create folder: ${forgeUserFriendlyMessage(error)}',
+          ),
+        ),
       );
     }
   }
@@ -368,7 +383,11 @@ class _EditorWorkflowScreenState extends State<EditorWorkflowScreen> {
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Could not rename: $error')));
+      ).showSnackBar(
+        SnackBar(
+          content: Text('Could not rename: ${forgeUserFriendlyMessage(error)}'),
+        ),
+      );
     }
   }
 
@@ -405,7 +424,11 @@ class _EditorWorkflowScreenState extends State<EditorWorkflowScreen> {
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Could not delete: $error')));
+      ).showSnackBar(
+        SnackBar(
+          content: Text('Could not delete: ${forgeUserFriendlyMessage(error)}'),
+        ),
+      );
     }
   }
 
@@ -777,7 +800,9 @@ class _EditorWorkflowScreenState extends State<EditorWorkflowScreen> {
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(error.toString())));
+      ).showSnackBar(
+        SnackBar(content: Text(forgeUserFriendlyMessage(error))),
+      );
     }
   }
 

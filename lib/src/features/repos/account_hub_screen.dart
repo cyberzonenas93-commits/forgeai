@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/branding/app_branding.dart';
 import '../../core/theme/forge_palette.dart';
 import '../../shared/forge_models.dart';
+import '../../shared/forge_user_friendly_error.dart';
 import '../../shared/widgets/forge_widgets.dart';
 import '../auth/application/auth_controller.dart';
 import '../auth/domain/auth_account.dart';
@@ -63,7 +64,7 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _loadError = e.toString();
+        _loadError = forgeUserFriendlyMessage(e);
         _loadingGitHub = false;
       });
     }
@@ -111,7 +112,7 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(e.toString())));
+      ).showSnackBar(SnackBar(content: Text(forgeUserFriendlyMessage(e))));
     }
   }
 
@@ -189,7 +190,7 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(e.toString())));
+      ).showSnackBar(SnackBar(content: Text(forgeUserFriendlyMessage(e))));
     }
   }
 

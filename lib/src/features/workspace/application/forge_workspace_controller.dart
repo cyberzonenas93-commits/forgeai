@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/observability/forge_telemetry.dart';
 import '../../../shared/forge_models.dart';
+import '../../../shared/forge_user_friendly_error.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../auth/domain/auth_state.dart';
 import '../data/forge_workspace_repository.dart';
@@ -501,7 +502,13 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
         media: media,
         dangerMode: value.promptDangerMode,
       );
-      final reply = result.reply;
+      var reply = result.reply;
+      if (result.appliedEdits.isNotEmpty) {
+        reply =
+            '$reply\n\nSaved ${result.appliedEdits.length} file(s) to this repo in the app only — '
+            'nothing has been committed or pushed to Git yet. Use the banner on Prompt to commit and push, '
+            'or open the Code tab to review files first.';
+      }
       if (_cancelledPromptRequestIds.remove(requestId)) {
         return '';
       }
@@ -519,6 +526,7 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
             : inspectedFiles,
         proposedEditFiles: proposedEditFiles,
         plannedEdits: result.plannedEdits,
+        appliedEdits: result.appliedEdits,
         summary: _truncateText(reply, 420),
       );
       final assistantMsg = ForgePromptMessage(
@@ -553,7 +561,7 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
       value = value.copyWith(
         isPromptLoading: false,
         clearPromptStatus: true,
-        errorMessage: error.toString(),
+        errorMessage: forgeUserFriendlyMessage(error),
       );
       rethrow;
     }
@@ -831,7 +839,7 @@ jobs:
     } catch (error) {
       value = value.copyWith(
         isBootstrapping: false,
-        errorMessage: error.toString(),
+        errorMessage: forgeUserFriendlyMessage(error),
       );
     }
   }
@@ -929,7 +937,10 @@ jobs:
         ),
       );
     } catch (error) {
-      value = value.copyWith(isSyncing: false, errorMessage: error.toString());
+      value = value.copyWith(
+        isSyncing: false,
+        errorMessage: forgeUserFriendlyMessage(error),
+      );
       unawaited(
         _telemetry.recordError(
           error,
@@ -959,7 +970,7 @@ jobs:
     } catch (error) {
       value = value.copyWith(
         isConnectingRepository: false,
-        errorMessage: error.toString(),
+        errorMessage: forgeUserFriendlyMessage(error),
       );
       unawaited(
         _telemetry.recordError(
@@ -1028,7 +1039,7 @@ jobs:
     } catch (error) {
       value = value.copyWith(
         isConnectingRepository: false,
-        errorMessage: error.toString(),
+        errorMessage: forgeUserFriendlyMessage(error),
       );
       unawaited(
         _telemetry.recordError(
@@ -1201,7 +1212,7 @@ jobs:
         ),
       );
     } catch (error) {
-      value = value.copyWith(errorMessage: error.toString());
+      value = value.copyWith(errorMessage: forgeUserFriendlyMessage(error));
       unawaited(
         _telemetry.recordError(
           error,
@@ -1247,7 +1258,7 @@ jobs:
     } catch (error) {
       value = value.copyWith(
         isSavingFile: false,
-        errorMessage: error.toString(),
+        errorMessage: forgeUserFriendlyMessage(error),
       );
       unawaited(
         _telemetry.recordError(
@@ -1282,7 +1293,7 @@ jobs:
         ),
       );
     } catch (error) {
-      value = value.copyWith(errorMessage: error.toString());
+      value = value.copyWith(errorMessage: forgeUserFriendlyMessage(error));
       rethrow;
     }
   }
@@ -1299,7 +1310,7 @@ jobs:
         folderPath: path,
       );
     } catch (error) {
-      value = value.copyWith(errorMessage: error.toString());
+      value = value.copyWith(errorMessage: forgeUserFriendlyMessage(error));
       rethrow;
     }
   }
@@ -1430,7 +1441,7 @@ jobs:
     } catch (error) {
       value = value.copyWith(
         isRunningAi: false,
-        errorMessage: error.toString(),
+        errorMessage: forgeUserFriendlyMessage(error),
       );
       unawaited(
         _telemetry.recordError(
@@ -1476,7 +1487,7 @@ jobs:
     } catch (error) {
       value = value.copyWith(
         isSavingFile: false,
-        errorMessage: error.toString(),
+        errorMessage: forgeUserFriendlyMessage(error),
       );
       unawaited(
         _telemetry.recordError(
@@ -1516,7 +1527,7 @@ jobs:
     } catch (error) {
       value = value.copyWith(
         isSavingFile: false,
-        errorMessage: error.toString(),
+        errorMessage: forgeUserFriendlyMessage(error),
       );
       unawaited(
         _telemetry.recordError(
@@ -1577,7 +1588,7 @@ jobs:
     } catch (error) {
       value = value.copyWith(
         isSubmittingGitAction: false,
-        errorMessage: error.toString(),
+        errorMessage: forgeUserFriendlyMessage(error),
       );
       unawaited(
         _telemetry.recordError(
@@ -1677,12 +1688,9 @@ jobs:
         ),
       );
     } catch (error) {
-      final String message = error.toString();
-      final String friendly = message.contains('404') ||
-              message.toLowerCase().contains('not found') ||
-              message.contains('workflow')
+      final String friendly = forgeErrorLooksLikeMissingGithubWorkflow(error)
           ? 'No workflow found in this repo. Add a file at .github/workflows/ci.yml with "on: workflow_dispatch:" to run checks from the app.'
-          : message;
+          : forgeUserFriendlyMessage(error);
       value = value.copyWith(
         isRunningCheck: false,
         errorMessage: friendly,
@@ -1729,12 +1737,9 @@ jobs:
       );
       return logsUrl;
     } catch (error) {
-      final message = error.toString();
-      final friendly = message.contains('404') ||
-              message.toLowerCase().contains('not found') ||
-              message.contains('workflow')
+      final friendly = forgeErrorLooksLikeMissingGithubWorkflow(error)
           ? 'No deploy workflow found. Add .github/workflows/deploy-functions.yml with workflow_dispatch, or tap Prompt tools → Install deploy-functions.yml.'
-          : message;
+          : forgeUserFriendlyMessage(error);
       value = value.copyWith(
         isRunningCheck: false,
         errorMessage: friendly,
@@ -1789,12 +1794,9 @@ jobs:
       );
       return logsUrl;
     } catch (error) {
-      final message = error.toString();
-      final friendly = message.contains('404') ||
-              message.toLowerCase().contains('not found') ||
-              message.contains('workflow')
+      final friendly = forgeErrorLooksLikeMissingGithubWorkflow(error)
           ? 'No app-run workflow found. Add .github/workflows/run-app.yml with workflow_dispatch and screenshot/log artifact upload.'
-          : message;
+          : forgeUserFriendlyMessage(error);
       value = value.copyWith(
         isRunningCheck: false,
         errorMessage: friendly,
@@ -1846,7 +1848,7 @@ jobs:
     } catch (error) {
       value = value.copyWith(
         isSubmittingGitAction: false,
-        errorMessage: error.toString(),
+        errorMessage: forgeUserFriendlyMessage(error),
       );
       unawaited(
         _telemetry.recordError(
@@ -1896,7 +1898,7 @@ jobs:
     } catch (error) {
       value = value.copyWith(
         isSubmittingGitAction: false,
-        errorMessage: error.toString(),
+        errorMessage: forgeUserFriendlyMessage(error),
       );
       unawaited(
         _telemetry.recordError(

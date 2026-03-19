@@ -228,6 +228,16 @@ class ForgePromptMediaAttachment {
   final String dataBase64;
 }
 
+class ForgePromptAppliedEdit {
+  const ForgePromptAppliedEdit({
+    required this.path,
+    required this.action,
+  });
+
+  final String path;
+  final String action;
+}
+
 class ForgePromptAgentTrace {
   const ForgePromptAgentTrace({
     required this.threadId,
@@ -236,6 +246,7 @@ class ForgePromptAgentTrace {
     required this.inspectedFiles,
     required this.proposedEditFiles,
     required this.plannedEdits,
+    this.appliedEdits = const <ForgePromptAppliedEdit>[],
     required this.summary,
   });
 
@@ -245,6 +256,7 @@ class ForgePromptAgentTrace {
   final List<String> inspectedFiles;
   final List<String> proposedEditFiles;
   final List<ForgePromptPlannedEdit> plannedEdits;
+  final List<ForgePromptAppliedEdit> appliedEdits;
   final String summary;
 }
 
@@ -265,11 +277,13 @@ class ForgeAskRepoResult {
     required this.reply,
     this.inspectedFiles = const <String>[],
     this.plannedEdits = const <ForgePromptPlannedEdit>[],
+    this.appliedEdits = const <ForgePromptAppliedEdit>[],
   });
 
   final String reply;
   final List<String> inspectedFiles;
   final List<ForgePromptPlannedEdit> plannedEdits;
+  final List<ForgePromptAppliedEdit> appliedEdits;
 }
 
 class ForgeCreateAiProjectResult {

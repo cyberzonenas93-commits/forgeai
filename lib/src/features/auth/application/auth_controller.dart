@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/observability/forge_telemetry.dart';
 import '../../../core/firebase/forge_firebase_readiness.dart';
+import '../../../shared/forge_user_friendly_error.dart';
 import '../data/firebase_auth_repository.dart';
 import '../data/in_memory_auth_repository.dart';
 import '../domain/auth_account.dart';
@@ -59,7 +60,7 @@ class AuthController extends ValueNotifier<AuthState> {
         operation: AuthOperation.idle,
         failure: AuthFailure(
           code: 'bootstrap-failed',
-          message: error.toString(),
+          message: forgeUserFriendlyMessage(error),
         ),
       );
       unawaited(
@@ -192,7 +193,10 @@ class AuthController extends ValueNotifier<AuthState> {
     } catch (error) {
       value = value.copyWith(
         operation: AuthOperation.idle,
-        failure: AuthFailure(code: 'unknown-error', message: error.toString()),
+        failure: AuthFailure(
+          code: 'unknown-error',
+          message: forgeUserFriendlyMessage(error),
+        ),
       );
       unawaited(
         _telemetry.recordError(

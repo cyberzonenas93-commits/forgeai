@@ -3,6 +3,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../core/theme/forge_palette.dart';
 import '../../shared/forge_models.dart';
+import '../../shared/forge_user_friendly_error.dart';
 import '../../shared/widgets/forge_widgets.dart';
 import '../auth/application/auth_controller.dart';
 import '../auth/domain/auth_account.dart';
@@ -391,7 +392,7 @@ class _RepositoriesScreenState extends State<RepositoriesScreen> {
                                             ).showSnackBar(
                                               SnackBar(
                                                 content: Text(
-                                                  'Sync failed: $e',
+                                                  'Sync failed: ${forgeUserFriendlyMessage(e)}',
                                                 ),
                                               ),
                                             );
@@ -435,7 +436,11 @@ class _RepositoriesScreenState extends State<RepositoriesScreen> {
                         } catch (e) {
                           if (!context.mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Could not open file: $e')),
+                            SnackBar(
+                              content: Text(
+                                'Could not open file: ${forgeUserFriendlyMessage(e)}',
+                              ),
+                            ),
                           );
                         }
                       },
@@ -453,7 +458,11 @@ class _RepositoriesScreenState extends State<RepositoriesScreen> {
                               } catch (e) {
                                 if (!context.mounted) return;
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Sync failed: $e')),
+                                  SnackBar(
+                                    content: Text(
+                                      'Sync failed: ${forgeUserFriendlyMessage(e)}',
+                                    ),
+                                  ),
                                 );
                               }
                             }
@@ -489,7 +498,11 @@ class _RepositoriesScreenState extends State<RepositoriesScreen> {
     } catch (error) {
       if (!mounted) return;
       messenger.showSnackBar(
-        SnackBar(content: Text('Could not share repository: $error')),
+        SnackBar(
+          content: Text(
+            'Could not share repository: ${forgeUserFriendlyMessage(error)}',
+          ),
+        ),
       );
     }
   }
@@ -518,13 +531,14 @@ class _RepositoriesScreenState extends State<RepositoriesScreen> {
       );
     } catch (error) {
       if (!context.mounted) return;
-      final message = error.toString();
-      final missingWorkflow = message.contains('404') ||
-          message.toLowerCase().contains('not found') ||
-          message.toLowerCase().contains('workflow');
+      final missingWorkflow = forgeErrorLooksLikeMissingGithubWorkflow(error);
       if (!missingWorkflow) {
         messenger.showSnackBar(
-          SnackBar(content: Text('Could not run app: $error')),
+          SnackBar(
+            content: Text(
+              'Could not run app: ${forgeUserFriendlyMessage(error)}',
+            ),
+          ),
         );
         return;
       }
@@ -639,7 +653,11 @@ class _RepositoriesScreenState extends State<RepositoriesScreen> {
       if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Could not create branch: $e')));
+      ).showSnackBar(
+        SnackBar(
+          content: Text('Could not create branch: ${forgeUserFriendlyMessage(e)}'),
+        ),
+      );
     }
   }
 }

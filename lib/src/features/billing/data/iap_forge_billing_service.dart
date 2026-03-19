@@ -149,6 +149,18 @@ class IAPForgeBillingService implements ForgeBillingService {
     // No-op for IAP; use backend/admin for dev grants
   }
 
+  @override
+  Future<String?> localizedPriceForPlan(ForgePlanId planId) async {
+    await _loadProductsIfNeeded();
+    return _productForPlan(planId)?.price;
+  }
+
+  @override
+  Future<String?> localizedPriceForPack(ForgeTopUpPackId packId) async {
+    await _loadProductsIfNeeded();
+    return _productForPack(packId)?.price;
+  }
+
   void _onPurchaseUpdated(List<PurchaseDetails> purchases) {
     for (final purchase in purchases) {
       switch (purchase.status) {

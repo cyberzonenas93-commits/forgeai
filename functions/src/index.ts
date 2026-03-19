@@ -2113,7 +2113,170 @@ const RECRUIT_AGENT_TOOL = {
   },
 };
 
-const MAX_AGENT_RECRUIT_ROUNDS = 3;
+/** Persist Prompt-suggested file changes to the repo working copy (Firestore), not to GitHub. */
+const APPLY_FILE_EDITS_TOOL = {
+  type: 'function' as const,
+  function: {
+    name: 'apply_file_edits',
+    description:
+      "Save implementation work to the user's in-app repository draft (synced Firestore files). " +
+      'Call this when the user wants real changes, not only explanation. For create/modify you must pass the COMPLETE file text. ' +
+      'You may call multiple times. Nothing is pushed to Git until the user commits from the app.',
+    parameters: {
+      type: 'object',
+      properties: {
+        edits: {
+          type: 'array',
+          description: 'Files to create, fully replace, or remove from the working copy.',
+          items: {
+            type: 'object',
+            properties: {
+              path: {
+                type: 'string',
+                description: 'Repo-relative path (e.g. lib/main.dart). No parent-directory segments.',
+              },
+              action: { type: 'string', enum: ['create', 'modify', 'delete'] },
+              content: {
+                type: 'string',
+                description: 'Full file body for create/modify. Empty string allowed; omit for delete.',
+              },
+            },
+            required: ['path', 'action'],
+          },
+        },
+      },
+      required: ['edits'],
+    },
+  },
+};
+
+type PromptAppliedEditAction = 'create' | 'modify' | 'delete';
+
+const MAX_PROMPT_APPLY_FILES = 16;
+const MAX_PROMPT_APPLY_SINGLE_FILE_CHARS = 350_000;
+const MAX_PROMPT_APPLY_TOTAL_CHARS = 450_000;
+const DEFAULT_AGENT_RECRUIT_ROUNDS = 3;
+const REPO_PROMPT_TOOL_MAX_ROUNDS = 8;
+const REPO_PROMPT_MAX_COMPLETION_TOKENS = 16384;
+
+function normalizePromptRepoPath(raw: unknown): string | null {
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  const t = raw.trim().replace(/\\/g, '/').replace(/^\/+/u, '');
+  if (!t || t.includes('..')) {
+    return null;
+  }
+  return t;
+}
+
+async function executeApplyFileEditsTool(
+  ownerId: string,
+  repoId: string,
+  argumentsJson: string,
+  appliedEditsOut: Array<{ path: string; action: PromptAppliedEditAction }>,
+): Promise<string> {
+  let parsed: { edits?: unknown };
+  try {
+    parsed = JSON.parse(argumentsJson || '{}') as { edits?: unknown };
+  } catch {
+    return JSON.stringify({ ok: false, errors: ['apply_file_edits arguments were not valid JSON.'] });
+  }
+  const list = parsed.edits;
+  if (!Array.isArray(list) || list.length === 0) {
+    return JSON.stringify({ ok: false, errors: ['Provide a non-empty edits array.'] });
+  }
+
+  await ensureRepositoryAccess(repoId, ownerId);
+
+  const errors: string[] = [];
+  const applied: string[] = [];
+  let totalChars = 0;
+  const capped = list.slice(0, MAX_PROMPT_APPLY_FILES);
+
+  for (const row of capped) {
+    if (!row || typeof row !== 'object') {
+      errors.push('Invalid edit entry.');
+      continue;
+    }
+    const rec = row as { path?: unknown; action?: unknown; content?: unknown };
+    const path = normalizePromptRepoPath(rec.path);
+    if (!path) {
+      errors.push(`Invalid or unsafe path: ${String(rec.path)}`);
+      continue;
+    }
+    const actionRaw = typeof rec.action === 'string' ? rec.action.trim().toLowerCase() : '';
+    if (actionRaw !== 'create' && actionRaw !== 'modify' && actionRaw !== 'delete') {
+      errors.push(`${path}: action must be create, modify, or delete.`);
+      continue;
+    }
+    const action = actionRaw as PromptAppliedEditAction;
+    const fileRef = db.collection('repositories').doc(repoId).collection('files').doc(safeDocId(path));
+
+    if (action === 'delete') {
+      try {
+        await fileRef.delete();
+      } catch {
+        // ignore missing
+      }
+      applied.push(path);
+      appliedEditsOut.push({ path, action: 'delete' });
+      await writeActivityEntry(ownerId, 'repo', repoId, `Prompt removed ${path} from working copy.`, {
+        filePath: path,
+        source: 'prompt_apply',
+      });
+      continue;
+    }
+
+    const content = typeof rec.content === 'string' ? rec.content : '';
+    if (content.length > MAX_PROMPT_APPLY_SINGLE_FILE_CHARS) {
+      errors.push(`${path}: file content exceeds size limit.`);
+      continue;
+    }
+    totalChars += content.length;
+    if (totalChars > MAX_PROMPT_APPLY_TOTAL_CHARS) {
+      errors.push('Total content across files exceeds limit; stop and ask the user to run a smaller change set.');
+      break;
+    }
+
+    const snap = await fileRef.get();
+    const prev =
+      snap.exists && typeof (snap.data() as { content?: string } | undefined)?.content === 'string'
+        ? ((snap.data() as { content: string }).content)
+        : '';
+    const baseContent = prev.length > 0 ? prev : content;
+
+    await fileRef.set(
+      {
+        path,
+        type: 'blob',
+        language: guessLanguageFromPath(path),
+        content,
+        contentPreview: truncate(content, 1200),
+        baseContent,
+        updatedAt: FieldValue.serverTimestamp(),
+        source: 'prompt_apply',
+      },
+      { merge: true },
+    );
+    applied.push(path);
+    appliedEditsOut.push({ path, action });
+    await writeActivityEntry(ownerId, 'repo', repoId, `Prompt ${action === 'create' ? 'created' : 'updated'} ${path}.`, {
+      filePath: path,
+      source: 'prompt_apply',
+      action,
+    });
+  }
+
+  return JSON.stringify({
+    ok: errors.length === 0,
+    appliedPaths: applied,
+    errors,
+    hint: applied.length
+      ? 'Files are saved in the app draft. Summarize for the user and remind them to review/commit in the Editor when ready.'
+      : 'No files were written.',
+  });
+}
 
 type OpenAiMessage =
   | { role: 'system'; content: string }
@@ -2129,6 +2292,11 @@ async function callAiChatTextWithAgentRecruitment(
   media: Array<{ mimeType: string; dataBase64: string }>,
   history: Array<{ role: 'user' | 'assistant'; text: string }>,
   sharedContextForSubAgents: string,
+  repoApply?: {
+    ownerId: string;
+    repoId: string;
+    appliedEditsOut: Array<{ path: string; action: PromptAppliedEditAction }>;
+  },
 ): Promise<string> {
   if (provider !== 'openai') {
     return callAiChatText(provider, systemPrompt, userMessage, media, history);
@@ -2165,15 +2333,24 @@ async function callAiChatTextWithAgentRecruitment(
     { role: 'user', content: buildUserContent(userMessage, media) },
   ];
 
+  const maxRounds = repoApply ? REPO_PROMPT_TOOL_MAX_ROUNDS : DEFAULT_AGENT_RECRUIT_ROUNDS;
+  const maxCompletionTokens = repoApply ? REPO_PROMPT_MAX_COMPLETION_TOKENS : 2000;
+  const tools = repoApply
+    ? [
+        { type: 'function' as const, function: RECRUIT_AGENT_TOOL.function },
+        { type: 'function' as const, function: APPLY_FILE_EDITS_TOOL.function },
+      ]
+    : [{ type: 'function' as const, function: RECRUIT_AGENT_TOOL.function }];
+
   let rounds = 0;
-  while (rounds < MAX_AGENT_RECRUIT_ROUNDS) {
+  while (rounds < maxRounds) {
     rounds += 1;
     const body: Record<string, unknown> = {
       model,
       temperature: 0.3,
-      max_completion_tokens: 2000,
+      max_completion_tokens: maxCompletionTokens,
       messages,
-      tools: [{ type: 'function', function: RECRUIT_AGENT_TOOL.function }],
+      tools,
       tool_choice: 'auto',
     };
 
@@ -2207,29 +2384,37 @@ async function callAiChatTextWithAgentRecruitment(
         tool_calls: msg.tool_calls,
       });
       for (const tc of msg.tool_calls) {
-        if (tc.function.name !== 'recruit_agent') {
+        if (tc.function.name === 'recruit_agent') {
+          let role = '';
+          let task = '';
+          try {
+            const args = JSON.parse(tc.function.arguments || '{}') as { role?: string; task?: string };
+            role = typeof args.role === 'string' ? args.role : '';
+            task = typeof args.task === 'string' ? args.task : '';
+          } catch {
+            task = String(tc.function.arguments || '');
+          }
+          if (!task) {
+            messages.push({ role: 'tool', tool_call_id: tc.id, content: 'Missing task.' });
+            continue;
+          }
+          try {
+            const result = await runSubAgent(provider, role, task, sharedContextForSubAgents);
+            messages.push({ role: 'tool', tool_call_id: tc.id, content: truncate(result, 2000) });
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            messages.push({ role: 'tool', tool_call_id: tc.id, content: `Sub-agent error: ${errMsg}` });
+          }
+        } else if (tc.function.name === 'apply_file_edits' && repoApply) {
+          const toolContent = await executeApplyFileEditsTool(
+            repoApply.ownerId,
+            repoApply.repoId,
+            tc.function.arguments || '{}',
+            repoApply.appliedEditsOut,
+          );
+          messages.push({ role: 'tool', tool_call_id: tc.id, content: truncate(toolContent, 12000) });
+        } else {
           messages.push({ role: 'tool', tool_call_id: tc.id, content: 'Unknown tool.' });
-          continue;
-        }
-        let role = '';
-        let task = '';
-        try {
-          const args = JSON.parse(tc.function.arguments || '{}') as { role?: string; task?: string };
-          role = typeof args.role === 'string' ? args.role : '';
-          task = typeof args.task === 'string' ? args.task : '';
-        } catch {
-          task = String(tc.function.arguments || '');
-        }
-        if (!task) {
-          messages.push({ role: 'tool', tool_call_id: tc.id, content: 'Missing task.' });
-          continue;
-        }
-        try {
-          const result = await runSubAgent(provider, role, task, sharedContextForSubAgents);
-          messages.push({ role: 'tool', tool_call_id: tc.id, content: truncate(result, 2000) });
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          messages.push({ role: 'tool', tool_call_id: tc.id, content: `Sub-agent error: ${errMsg}` });
         }
       }
       continue;
@@ -4067,6 +4252,8 @@ interface AskRepoData {
     dataBase64?: string;
   }>;
   dangerMode?: boolean;
+  /** When false, Prompt will not offer apply_file_edits (text-only). Default: apply when repoId is set. */
+  applyRepoEdits?: boolean;
 }
 
 function buildRepoSearchTerms(prompt: string, history: Array<{ role: 'user' | 'assistant'; text: string }>): string[] {
@@ -4225,7 +4412,7 @@ export const askRepo = onCall(GIT_AND_AI_CALLABLE_OPTIONS, async request => {
     .map(item => {
       const mimeType = typeof item?.mimeType === 'string' ? item.mimeType.trim().toLowerCase() : '';
       const dataBase64 = typeof item?.dataBase64 === 'string' ? item.dataBase64.trim() : '';
-      if (!mimeType.startsWith('image/') || dataBase64.length < 32 || dataBase64.length > 3_000_000) {
+      if (!mimeType.startsWith('image/') || dataBase64.length < 32) {
         return null;
       }
       return { mimeType, dataBase64 };
@@ -4389,6 +4576,19 @@ ${relevantSnippets || '(no strong matches from indexed content yet)'}`;
     'Pre-authorized Prompt reply.',
   );
 
+  const appliedEditsTrace: Array<{ path: string; action: PromptAppliedEditAction }> = [];
+  const allowRepoApply = Boolean(focusRepoId) && data.applyRepoEdits !== false;
+  const promptExecutionClause = allowRepoApply
+    ? `
+
+Tool-based execution (enabled for this Prompt):
+- You can call apply_file_edits to save files into the user's in-app working copy (not GitHub until they commit).
+- For implementation requests—features, fixes, refactors, new files—MUST call apply_file_edits with the full file text for every created or updated file. Pure Q&A or high-level architecture-only answers may skip the tool.
+- Batch multiple files in one apply_file_edits call when practical; call again in a later turn if you hit limits.
+- Use action "delete" with no content to remove a path from the working copy.
+- After successful saves, summarize changes plainly and remind them to review or commit from Editor / Git when ready.`
+    : '';
+
   const systemPrompt = `You are CodeCatalystAI, an autonomous coding agent on mobile. Behave like a strong IDE coding assistant: confident, practical, and action-first. The user has connected repositories and expects you to work from repo context immediately.
 
 ${repoContext}
@@ -4412,6 +4612,7 @@ When you need deeper expertise (security, naming, refactor plan, explanation), y
 When they ask to make or fix something, default to execution mode (like Codex/Claude/Cursor): act as if you are making the edits now, name the exact files you will touch, describe the concrete changes in order, and include ready-to-apply code for each changed area. Avoid "just run this" style replies unless a required permission or secret is missing.
 If they ask to deploy Firebase functions via git, remind them they can type **deploy functions** or **deploy firebase** in Prompt (dispatches deploy-functions.yml) after adding that workflow and one auth secret in repo Actions secrets: FIREBASE_TOKEN (easy) or FIREBASE_SERVICE_ACCOUNT (recommended)—or use Prompt tools.
 If they ask to run the app via git, remind them they can type **run app**, **run the app**, or **run app via git** in Prompt (dispatches run-app.yml) or use Prompt tools → Run app via Git. Mention installing workflows if missing: **install run app** / **install deploy workflow**.
+${promptExecutionClause}
 
 Be concise, actionable, and sound like a person.`;
 
@@ -4424,6 +4625,9 @@ Be concise, actionable, and sound like a person.`;
       media,
       history,
       repoContext,
+      allowRepoApply && focusRepoId
+        ? { ownerId, repoId: focusRepoId, appliedEditsOut: appliedEditsTrace }
+        : undefined,
     );
     await captureWalletTokens(
       ownerId,
@@ -4462,6 +4666,7 @@ Be concise, actionable, and sound like a person.`;
     trace: {
       inspectedFiles: inspectedFilesForTrace,
       plannedEdits,
+      appliedEdits: appliedEditsTrace,
     },
   };
 });

@@ -50,7 +50,10 @@ class _OnboardingGateState extends State<OnboardingGate> {
     } else if (_completed == false && _storage != null) {
       child = KeyedSubtree(
         key: const ValueKey('onboarding-flow'),
-        child: OnboardingScreen(onComplete: _completeOnboarding),
+        child: OnboardingScreen(
+          storage: _storage!,
+          onComplete: _completeOnboarding,
+        ),
       );
     } else {
       child = KeyedSubtree(

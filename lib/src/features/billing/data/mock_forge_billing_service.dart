@@ -67,4 +67,25 @@ class MockForgeBillingService implements ForgeBillingService {
     // Actual balance update is done via backend / admin; this is a no-op
     // or could call a dev-only Cloud Function.
   }
+
+  @override
+  Future<String?> localizedPriceForPlan(ForgePlanId planId) async {
+    for (final plan in forgePlans) {
+      if (plan.id == planId) {
+        if (plan.priceUsd <= 0) return 'Free';
+        return '\$${plan.priceUsd.toStringAsFixed(2)}/mo';
+      }
+    }
+    return null;
+  }
+
+  @override
+  Future<String?> localizedPriceForPack(ForgeTopUpPackId packId) async {
+    for (final pack in forgeTopUpPacks) {
+      if (pack.id == packId) {
+        return '\$${pack.priceUsd.toStringAsFixed(0)}';
+      }
+    }
+    return null;
+  }
 }

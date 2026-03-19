@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/branding/app_branding.dart';
+import '../../shared/forge_user_friendly_error.dart';
 import '../../shared/widgets/forge_widgets.dart';
 import '../workspace/application/forge_workspace_controller.dart';
 import '../workspace/domain/forge_workspace_state.dart';
@@ -89,7 +90,7 @@ class _NewAiProjectScreenState extends State<NewAiProjectScreen> {
       if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(e.toString())));
+      ).showSnackBar(SnackBar(content: Text(forgeUserFriendlyMessage(e))));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

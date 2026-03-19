@@ -54,4 +54,12 @@ abstract class ForgeBillingService {
 
   /// Grant tokens for development/testing (no-op in production).
   Future<void> devGrantTokens(int amount);
+
+  /// Localized storefront price label for a subscription plan (for UI display).
+  /// Returns null when unavailable; callers should fall back to config pricing.
+  Future<String?> localizedPriceForPlan(ForgePlanId planId);
+
+  /// Localized storefront price label for a token pack (for UI display).
+  /// Returns null when unavailable; callers should fall back to config pricing.
+  Future<String?> localizedPriceForPack(ForgeTopUpPackId packId);
 }

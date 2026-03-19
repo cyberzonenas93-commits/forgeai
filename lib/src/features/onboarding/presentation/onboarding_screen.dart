@@ -2,19 +2,23 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/branding/app_branding.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/forge_palette.dart';
 import '../../../core/widgets/forge_ui.dart';
+import '../data/onboarding_storage.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
     super.key,
+    required this.storage,
     required this.onComplete,
   });
 
+  final OnboardingStorage storage;
   final VoidCallback onComplete;
 
   @override
@@ -26,6 +30,8 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   final PageController _pageController = PageController();
   int _currentPage = 0;
   late final AnimationController _ambient;
+  late DeployAuthMethodOption _deployAuthMethod;
+  bool _savingDeploySetup = false;
 
   static const List<_OnboardingPage> _pages = [
     _OnboardingPage(
@@ -60,6 +66,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   @override
   void initState() {
     super.initState();
+    _deployAuthMethod = widget.storage.deployAuthMethod;
     _ambient = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 28),
@@ -86,6 +93,35 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     } else {
       widget.onComplete();
     }
+  }
+
+  Future<void> _saveDeploySetup() async {
+    if (_savingDeploySetup) return;
+    setState(() => _savingDeploySetup = true);
+    await widget.storage.saveDeploySetup(
+      authMethod: _deployAuthMethod,
+      configured: true,
+    );
+    if (!mounted) return;
+    setState(() => _savingDeploySetup = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Deploy setup saved. You can edit this later in Settings.'),
+      ),
+    );
+  }
+
+  Future<void> _skipDeploySetup() async {
+    await widget.storage.saveDeploySetup(
+      authMethod: _deployAuthMethod,
+      configured: false,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Skipped for now. You can set this up later.'),
+      ),
+    );
   }
 
   @override
@@ -161,9 +197,21 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                       onPageChanged: _onPageChanged,
                       itemCount: _pages.length,
                       itemBuilder: (context, index) {
+                        final isDeployPage = index == _pages.length - 1;
                         return _OnboardingPageView(
                           page: _pages[index],
                           ambient: _ambient,
+                          extraChild: isDeployPage
+                              ? _OptionalDeploySetupCard(
+                                  authMethod: _deployAuthMethod,
+                                  isSaving: _savingDeploySetup,
+                                  onAuthChanged: (value) {
+                                    setState(() => _deployAuthMethod = value);
+                                  },
+                                  onSave: _saveDeploySetup,
+                                  onSkip: _skipDeploySetup,
+                                )
+                              : null,
                         );
                       },
                     ),
@@ -365,10 +413,12 @@ class _OnboardingPageView extends StatelessWidget {
   const _OnboardingPageView({
     required this.page,
     required this.ambient,
+    this.extraChild,
   });
 
   final _OnboardingPage page;
   final Animation<double> ambient;
+  final Widget? extraChild;
 
   @override
   Widget build(BuildContext context) {
@@ -408,6 +458,142 @@ class _OnboardingPageView extends StatelessWidget {
               height: 1.55,
             ),
             textAlign: TextAlign.center,
+          ),
+          if (extraChild != null) ...[
+            const SizedBox(height: 24),
+            extraChild!,
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _OptionalDeploySetupCard extends StatelessWidget {
+  const _OptionalDeploySetupCard({
+    required this.authMethod,
+    required this.isSaving,
+    required this.onAuthChanged,
+    required this.onSave,
+    required this.onSkip,
+  });
+
+  final DeployAuthMethodOption authMethod;
+  final bool isSaving;
+  final ValueChanged<DeployAuthMethodOption> onAuthChanged;
+  final VoidCallback onSave;
+  final VoidCallback onSkip;
+
+  String _authLabel(DeployAuthMethodOption value) {
+    switch (value) {
+      case DeployAuthMethodOption.token:
+        return 'Easy: Firebase login token';
+      case DeployAuthMethodOption.serviceAccount:
+        return 'Advanced: Service account JSON';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final isToken = authMethod == DeployAuthMethodOption.token;
+    final setupCommand = isToken
+        ? 'firebase login:ci'
+        : 'Create service account JSON and add FIREBASE_SERVICE_ACCOUNT secret';
+    final secretName =
+        isToken ? 'FIREBASE_TOKEN' : 'FIREBASE_SERVICE_ACCOUNT';
+    return ForgePanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Deploy setup (very easy)',
+            style: textTheme.titleMedium?.copyWith(
+              color: ForgePalette.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Set this once so AI can deploy Firebase functions from GitHub.',
+            style: textTheme.bodySmall?.copyWith(
+              color: ForgePalette.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Choose setup mode',
+            style: textTheme.labelLarge?.copyWith(
+              color: ForgePalette.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: DeployAuthMethodOption.values.map((option) {
+              final selected = option == authMethod;
+              return ChoiceChip(
+                label: Text(_authLabel(option)),
+                selected: selected,
+                onSelected: isSaving
+                    ? null
+                    : (_) => onAuthChanged(option),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 10),
+          _DeploySetupHint(
+            text:
+                '1) Run `$setupCommand` on your laptop.\n'
+                '2) Copy the output token/JSON.\n'
+                '3) In GitHub repo secrets, add `$secretName`.\n'
+                '4) Use Prompt -> Deploy functions.',
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: ForgeSecondaryButton(
+              label: isToken ? 'Copy firebase login command' : 'Copy secret name',
+              icon: Icons.copy_rounded,
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      await Clipboard.setData(
+                        ClipboardData(text: isToken ? 'firebase login:ci' : secretName),
+                      );
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            isToken
+                                ? 'Copied: firebase login:ci'
+                                : 'Copied: $secretName',
+                          ),
+                        ),
+                      );
+                    },
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: ForgeSecondaryButton(
+                  label: 'Skip for now',
+                  onPressed: isSaving ? null : onSkip,
+                  expanded: true,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ForgePrimaryButton(
+                  label: isSaving ? 'Saving...' : 'Save setup',
+                  icon: Icons.cloud_done_rounded,
+                  onPressed: isSaving ? null : onSave,
+                  expanded: true,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -663,6 +849,32 @@ class _OnboardingHeroPainter extends CustomPainter {
     return oldDelegate.rotation != rotation ||
         oldDelegate.accent != accent ||
         oldDelegate.offsets != offsets;
+  }
+}
+
+class _DeploySetupHint extends StatelessWidget {
+  const _DeploySetupHint({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: ForgePalette.border),
+        color: ForgePalette.surface.withValues(alpha: 0.35),
+      ),
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: ForgePalette.textSecondary,
+          height: 1.4,
+        ),
+      ),
+    );
   }
 }
 
