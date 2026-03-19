@@ -5,11 +5,11 @@ Small TestFlight-style beta focused on authentication, repository operations, AI
 
 ## Target Group
 - 5-10 internal engineering testers
-- 5-15 trusted external developers with real GitHub/GitLab repos
+- 5-15 trusted external developers with real GitHub/GitHub repos
 
 ## Beta Goals
 - Validate live auth flows
-- Validate GitHub/GitLab repository operations
+- Validate GitHub/GitHub repository operations
 - Measure AI latency and token burn
 - Validate PR/MR and check dispatch reliability
 
@@ -44,4 +44,4 @@ Small TestFlight-style beta focused on authentication, repository operations, AI
 - Route blocker or high-severity auth, token, crash, or PR/MR issues to the launch owner within the same day
 
 ## TestFlight Notes Draft
-- "ForgeAI beta adds mobile repository review, AI diff generation, GitHub/GitLab actions, and CI checks. Please focus on sign-in, repo connection, editing, AI diff approval, and workflow reliability."
+- "CodeCatalystAI beta adds mobile repository review, AI diff generation, GitHub/GitHub actions, and CI checks. Please focus on sign-in, repo connection, editing, AI diff approval, and workflow reliability."

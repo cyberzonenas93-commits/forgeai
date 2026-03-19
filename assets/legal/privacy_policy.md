@@ -1,13 +1,13 @@
-# ForgeAI Privacy Policy
+# CodeCatalystAI Privacy Policy
 
-**Last updated:** March 2025
+**Last updated:** March 2026
 
-ForgeAI ("we," "our," or "the app") is a mobile application for developers to browse repositories, edit code, and use AI-assisted suggestions. This policy describes how we collect, use, and protect your information.
+CodeCatalystAI ("we," "our," or "the app") is a mobile application for developers to browse repositories, edit code, and use AI-assisted suggestions. This policy describes how we collect, use, and protect your information.
 
 ## Information We Collect
 
 - **Account information:** When you sign up or sign in (including via Guest, Email, Google, Sign in with Apple, or GitHub), we store your display name, email, profile photo URL, and authentication provider(s).
-- **Repository and code:** When you connect a GitHub or GitLab account, we store repository metadata and file content that you open or edit in the app.
+- **Repository and code:** When you connect a GitHub or GitHub account, we store repository metadata and file content that you open or edit in the app.
 - **Prompts and AI usage:** When you request AI suggestions, we send your prompts and relevant code to our backend. That content is then sent to third-party AI services (such as OpenAI) that we use to generate suggestions. We do not use your content to train third-party models beyond what those providers’ own policies allow.
 - **Usage and diagnostics:** We use Firebase (Authentication, Firestore, Analytics, Crashlytics) and our own telemetry to understand how the app is used, fix crashes, and improve the product. This may include device type, app version, and in-app actions (e.g., feature usage). We do not sell this data.
 
@@ -23,7 +23,7 @@ We use:
 
 - **Firebase (Google)** for authentication, database, cloud functions, analytics, and crash reporting. See [Google Privacy Policy](https://policies.google.com/privacy).
 - **AI providers** (e.g., OpenAI) to generate code suggestions. Your prompts and the code you submit for suggestions are sent to these providers. Their use of data is governed by their respective privacy policies.
-- **GitHub and GitLab** when you connect repositories; their terms and privacy policies apply to your use of their services.
+- **GitHub and GitHub** when you connect repositories; their terms and privacy policies apply to your use of their services.
 
 We do not sell your personal information.
 
@@ -38,7 +38,7 @@ We use industry-standard practices (including HTTPS and secure authentication) t
 
 ## Children
 
-ForgeAI is not directed at children under 13. We do not knowingly collect personal information from children under 13.
+CodeCatalystAI is not directed at children under 13. We do not knowingly collect personal information from children under 13.
 
 ## Changes
 
@@ -46,4 +46,4 @@ We may update this policy from time to time. We will notify you of material chan
 
 ## Contact
 
-For privacy-related questions or requests, please contact us through the support or contact option provided in the app or on our website.
+For privacy-related questions or requests, contact **angelonartey@hotmail.com** or **+233 59 549 4113**, or use the support option in the app and the Support page on our website.

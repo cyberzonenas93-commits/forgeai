@@ -9,5 +9,19 @@
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
+  },
+  "hosting": {
+    "public": "build/web",
+    "predeploy": [
+      "flutter build web",
+      "cp web/privacy.html build/web/privacy.html",
+      "cp web/support.html build/web/support.html"
+    ],
+    "ignore": [],
+    "rewrites": [
+      { "source": "/privacy", "destination": "/privacy.html" },
+      { "source": "/support", "destination": "/support.html" },
+      { "source": "**", "destination": "/index.html" }
+    ]
   }
 }

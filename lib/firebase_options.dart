@@ -2,11 +2,13 @@ import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
 
+import 'src/core/branding/app_branding.dart';
+
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
       throw UnsupportedError(
-        'ForgeAI web support is not configured in this workspace.',
+        '$kAppDisplayName web support is not configured in this workspace.',
       );
     }
 
@@ -36,7 +38,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '560540704761',
     projectId: 'forgeai-555ee',
     storageBucket: 'forgeai-555ee.firebasestorage.app',
-    iosBundleId: 'com.forgeai.app',
+    iosBundleId: 'com.angelonartey.forgeai',
     iosClientId:
         '560540704761-2l7cj1v94jud4u7kelp9k1qkvgbt0t8v.apps.googleusercontent.com',
   );

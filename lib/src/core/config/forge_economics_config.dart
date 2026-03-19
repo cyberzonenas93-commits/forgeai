@@ -1,4 +1,4 @@
-/// Centralized token economics and monetization config for ForgeAI.
+/// Centralized token economics and monetization config (see `app_branding.dart` for display name).
 /// Single source for action prices, plan/pack definitions, and display values.
 /// Backend pricing lives in functions/src/pricing.ts and economics-config.ts.
 library;
@@ -24,8 +24,8 @@ enum ForgeTopUpPackId {
   packLarge,
 }
 
-/// User-facing value: 1 Forge token = \$0.01.
-const double forgeTokenValueUsd = 0.01;
+/// User-facing value: 1 Forge token ≈ \$0.05 effective value (actions).
+const double forgeTokenValueUsd = 0.05;
 
 /// Target gross margin multiplier on AI cost (minimum).
 const int marginTargetMultiplier = 5;
@@ -44,6 +44,7 @@ const Map<String, int> actionTokenCosts = <String, int>{
   'refactor_code': 10,
   'deep_repo_analysis': 25,
   'ai_suggestion': 8,
+  'ai_project_scaffold': 40,
   'create_branch': 12,
   'commit': 24,
   'open_pr': 16,
@@ -61,6 +62,7 @@ const Map<String, String> actionLabels = <String, String>{
   'refactor_code': 'Refactor code',
   'deep_repo_analysis': 'Deep repo analysis',
   'ai_suggestion': 'AI suggestion',
+  'ai_project_scaffold': 'New project (AI)',
   'create_branch': 'Create branch',
   'commit': 'Commit',
   'open_pr': 'Open PR',
@@ -150,22 +152,22 @@ const List<ForgeTopUpPackDefinition> forgeTopUpPacks = <ForgeTopUpPackDefinition
     id: ForgeTopUpPackId.packSmall,
     productId: 'com.forgeai.app.tokens.small',
     tokens: 100,
-    priceUsd: 5,
-    appleNetUsdAt30: 3.50,
+    priceUsd: 5.99,
+    appleNetUsdAt30: 4.19,
   ),
   ForgeTopUpPackDefinition(
     id: ForgeTopUpPackId.packMedium,
     productId: 'com.forgeai.app.tokens.medium',
     tokens: 300,
-    priceUsd: 12,
-    appleNetUsdAt30: 8.40,
+    priceUsd: 14.99,
+    appleNetUsdAt30: 10.49,
   ),
   ForgeTopUpPackDefinition(
     id: ForgeTopUpPackId.packLarge,
     productId: 'com.forgeai.app.tokens.large',
     tokens: 1000,
-    priceUsd: 30,
-    appleNetUsdAt30: 21.00,
+    priceUsd: 34.99,
+    appleNetUsdAt30: 24.49,
   ),
 ];
 
@@ -175,7 +177,3 @@ int? tokenCostForAction(String actionType) => actionTokenCosts[actionType];
 /// Returns display label for an action type.
 String labelForAction(String actionType) =>
     actionLabels[actionType] ?? actionType;
-</think>
-
-<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>
-StrReplace

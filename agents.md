@@ -1,4 +1,4 @@
-# ForgeAI Agents
+# CodeCatalystAI Agents
 
 This file tracks domain ownership for the coordinated build. Agents should stay within their owned areas unless integration requires collaboration.
 
@@ -12,7 +12,7 @@ This file tracks domain ownership for the coordinated build. Agents should stay 
 - Owns authentication flows, guest mode, sign-in providers, account state, and deletion/re-auth UX.
 
 ## Git Integration
-- Owns GitHub/GitLab repository sync, branches, commits, pull requests / merge requests, and activity logging.
+- Owns GitHub/GitHub repository sync, branches, commits, pull requests / merge requests, and activity logging.
 
 ## Editor/Diff
 - Owns code editor, file save flows, AI change staging, diff review, and approval controls.

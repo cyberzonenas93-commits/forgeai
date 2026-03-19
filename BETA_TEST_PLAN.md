@@ -1,17 +1,17 @@
 # Beta Test Plan
 
 ## Goal
-Validate that ForgeAI can safely authenticate, sync repositories, edit files, generate AI diffs, open PRs/MRs, run checks, and meter token usage from mobile without exposing terminal or remote-execution behavior.
+Validate that CodeCatalystAI can safely authenticate, sync repositories, edit files, generate AI diffs, open PRs/MRs, run checks, and meter token usage from mobile without exposing terminal or remote-execution behavior.
 
 ## Tester Cohorts
-- Internal engineering: full flow coverage, console access, aggressive bug finding.
+- Internal engineering: full flow coverage, console access, thorough bug finding.
 - Friendly external developers: real-world repository and latency coverage.
 - iPhone-first testers: OAuth and editor ergonomics validation.
 
 ## Required Environments
 - Firebase project with live Auth providers enabled
 - One GitHub test account and disposable repository
-- One GitLab test account and disposable repository
+- One GitHub test account and disposable repository
 - OpenAI secret configured
 - Optional Anthropic/Gemini secrets if beta routing includes them
 
@@ -22,7 +22,7 @@ Validate that ForgeAI can safely authenticate, sync repositories, edit files, ge
 - Sign in with Apple on physical iPhone
 - Sign in with GitHub
 - Connect GitHub repository
-- Connect GitLab repository via token flow
+- Connect GitHub repository via token flow
 - Browse file tree
 - Open and edit file
 - Save manual edit
@@ -53,7 +53,7 @@ Validate that ForgeAI can safely authenticate, sync repositories, edit files, ge
 - CI workflow dispatch failure
 
 ## Beta Exit Criteria
-- All must-pass flows succeed for at least one GitHub and one GitLab repo
+- All must-pass flows succeed for at least one GitHub and one GitHub repo
 - Crash-free internal beta session rate is acceptable
 - Token usage logs reconcile with successful/failed actions
 - No App Store review blocker remains in `APPLE_REVIEW_NOTES.md`

@@ -1,3 +1,4 @@
+import { OPENAI_LATEST_CHAT_MODEL } from './economics-config';
 import type { AiProviderName, ProviderName } from './runtime';
 
 export type GitActionType = 'create_branch' | 'commit' | 'open_pr' | 'merge_pr';
@@ -12,7 +13,9 @@ export type BillableActionType =
   | GitActionType
   | CheckActionType
   | AiTaskActionType
-  | 'ai_suggestion';
+  | 'ai_suggestion'
+  | 'ai_project_scaffold'
+  | 'repo_prompt';
 
 export interface PricingRule {
   minTokens: number;
@@ -37,7 +40,7 @@ export interface CostSnapshot {
 
 export const PRICING_VERSION = '2026-03-monetization-1';
 export const APP_TOKEN_VALUE_USD = Number(
-  process.env.FORGEAI_TOKEN_VALUE_USD ?? '0.01',
+  process.env.FORGEAI_TOKEN_VALUE_USD ?? '0.05',
 );
 
 export const ACTION_PRICING: Record<BillableActionType, PricingRule> = {
@@ -91,11 +94,18 @@ export const ACTION_PRICING: Record<BillableActionType, PricingRule> = {
     note: 'Covers provider build dispatch and result tracking.',
   },
   ai_suggestion: {
-    minTokens: 8,
+    minTokens: 16,
     multiplier: 1,
     dailyCap: 30,
     refundPolicy: 'charge_on_successful_generation_only',
-    note: 'Charged when a suggestion draft is successfully generated.',
+    note: 'Charged when a suggestion draft is successfully generated; routes to priority-tier models.',
+  },
+  ai_project_scaffold: {
+    minTokens: 40,
+    multiplier: 1,
+    dailyCap: 15,
+    refundPolicy: 'charge_on_successful_generation_only',
+    note: 'AI-generated starter files plus remote repository creation and commits.',
   },
   explain_code: {
     minTokens: 2,
@@ -132,6 +142,13 @@ export const ACTION_PRICING: Record<BillableActionType, PricingRule> = {
     refundPolicy: 'refund_on_provider_failure',
     note: 'Heavy; routes to priority tier.',
   },
+  repo_prompt: {
+    minTokens: 12,
+    multiplier: 1,
+    dailyCap: 60,
+    refundPolicy: 'refund_on_provider_failure',
+    note: 'Prompt tab chat with repository context; charged per successful reply.',
+  },
 };
 
 const AI_COST_ASSUMPTIONS: Record<
@@ -144,7 +161,7 @@ const AI_COST_ASSUMPTIONS: Record<
   }
 > = {
   openai: {
-    model: process.env.OPENAI_MODEL ?? 'gpt-4.1-mini',
+    model: process.env.OPENAI_MODEL ?? OPENAI_LATEST_CHAT_MODEL,
     inputPer1kUsd: Number(process.env.OPENAI_INPUT_COST_PER_1K_USD ?? '0.0004'),
     outputPer1kUsd: Number(
       process.env.OPENAI_OUTPUT_COST_PER_1K_USD ?? '0.0016',
@@ -200,11 +217,13 @@ export const BILLABLE_ACTION_TYPES: readonly BillableActionType[] = [
   'run_lint',
   'build_project',
   'ai_suggestion',
+  'ai_project_scaffold',
   'explain_code',
   'fix_bug',
   'generate_tests',
   'refactor_code',
   'deep_repo_analysis',
+  'repo_prompt',
 ] as const;
 
 export function isBillableActionType(
@@ -235,11 +254,13 @@ export function buildCostSnapshot(input: {
 
   const isAiAction =
     input.actionType === 'ai_suggestion' ||
+    input.actionType === 'ai_project_scaffold' ||
     input.actionType === 'explain_code' ||
     input.actionType === 'fix_bug' ||
     input.actionType === 'generate_tests' ||
     input.actionType === 'refactor_code' ||
-    input.actionType === 'deep_repo_analysis';
+    input.actionType === 'deep_repo_analysis' ||
+    input.actionType === 'repo_prompt';
   if (isAiAction) {
     const aiProvider = input.provider as AiProviderName;
     const assumption = AI_COST_ASSUMPTIONS[aiProvider];

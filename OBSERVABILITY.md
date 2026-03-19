@@ -23,6 +23,11 @@
 - Git action success/failure
 - check dispatch success/failure
 
+## Revenue and Cost Observability
+- **Backend**: Every reserve/capture/release writes to `wallets/{uid}/usage` with `estimatedProviderCostUsd`, `estimatedMarginUsd`, `refundPolicy`, `pricingVersion`, `model`, `latencyMs`, and `beforeBalance`/`afterBalance`.
+- **opsMetrics**: AI, Git, and check operations log `actionType`, `chargedTokens`, `estimatedProviderCostUsd`, `estimatedMarginUsd`, `refundPolicy`, `dailyCap`, `pricingVersion` for revenue/cost and margin tracking.
+- **Flutter**: `forge_paywall_viewed`, `forge_token_packs_viewed` for funnel analytics.
+
 ## Token Observability
 Wallet usage rows now include:
 - `estimatedProviderCostUsd`

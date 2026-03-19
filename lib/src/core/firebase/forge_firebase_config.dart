@@ -15,7 +15,7 @@ class ForgeFirebaseConfig {
       projectId: 'forgeai-555ee',
       storageBucket: 'forgeai-555ee.firebasestorage.app',
       androidPackageName: 'com.forgeai.app',
-      iosBundleId: 'com.forgeai.app',
+      iosBundleId: 'com.angelonartey.forgeai',
       androidAppId: '1:560540704761:android:be77d6236e17a12aa0e728',
       iosAppId: '1:560540704761:ios:b731e8b285335363a0e728',
       androidApiKey: 'AIzaSyCvC3uWo2Iu_RqI_d5t_2OgD7R747Hso_E',

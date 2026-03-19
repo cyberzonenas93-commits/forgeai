@@ -1,7 +1,7 @@
 # Release Config
 
 ## App Identity
-- Display name: `ForgeAI`
+- Display name: `CodeCatalystAI`
 - iOS bundle ID: `com.forgeai.app`
 - Android application ID: `com.forgeai.app`
 - Development team: `36TZ8UKL8W`

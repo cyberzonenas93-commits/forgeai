@@ -1,3 +1,4 @@
+import '../branding/app_branding.dart';
 import 'forge_firebase_config.dart';
 
 class FirebaseBootstrap {
@@ -7,7 +8,7 @@ class FirebaseBootstrap {
     return FirebaseBootstrap(
       config: ForgeFirebaseConfig.production(),
       reviewNotes:
-          'ForgeAI uses Firebase as a backend service layer only. No terminal, shell, or remote desktop behavior is exposed in the app surface.',
+          '$kAppDisplayName uses Firebase as a backend service layer only. No terminal, shell, or remote desktop behavior is exposed in the app surface.',
     );
   }
 

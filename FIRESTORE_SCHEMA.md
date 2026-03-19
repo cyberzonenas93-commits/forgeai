@@ -16,7 +16,7 @@ Profile and entitlement record for an authenticated user.
 - `deletedAt`
 
 ### `users/{uid}/connections/{provider}`
-User-visible provider connection status for GitHub or GitLab.
+User-visible provider connection status for GitHub or GitHub.
 - `provider`
 - `account`
 - `scopeSummary`
@@ -37,7 +37,7 @@ Backend-only provider access tokens captured from OAuth sign-in or manual token 
 ### `repositories/{repoId}`
 Connected repository metadata.
 - `ownerId`
-- `provider` (`github` | `gitlab`)
+- `provider` (`github` | `github`)
 - `owner`
 - `name`
 - `fullName`

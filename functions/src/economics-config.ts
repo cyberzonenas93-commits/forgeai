@@ -3,6 +3,13 @@
  * Single source for wallet onboarding, caps, and IAP product catalog.
  */
 
+/**
+ * OpenAI alias for the current GPT-5 snapshot used in ChatGPT; OpenAI rolls this forward over time.
+ * @see https://developers.openai.com/api/docs/models/gpt-5-chat-latest
+ * Pin a snapshot with OPENAI_MODEL / OPENAI_MODEL_* env vars when you need fixed behavior.
+ */
+export const OPENAI_LATEST_CHAT_MODEL = 'gpt-5-chat-latest';
+
 export type PlanId = 'free' | 'pro' | 'power';
 export type ModelTier = 'basic' | 'standard' | 'priority';
 export type TopUpPackId = 'pack_small' | 'pack_medium' | 'pack_large';
@@ -64,22 +71,22 @@ export const TOP_UP_PACKS: Record<TopUpPackId, TopUpPackDefinition> = {
     id: 'pack_small',
     productId: 'com.forgeai.app.tokens.small',
     tokens: 100,
-    priceUsd: 5,
-    appleNetUsdAt30: 3.5,
+    priceUsd: 5.99,
+    appleNetUsdAt30: 4.19,
   },
   pack_medium: {
     id: 'pack_medium',
     productId: 'com.forgeai.app.tokens.medium',
     tokens: 300,
-    priceUsd: 12,
-    appleNetUsdAt30: 8.4,
+    priceUsd: 14.99,
+    appleNetUsdAt30: 10.49,
   },
   pack_large: {
     id: 'pack_large',
     productId: 'com.forgeai.app.tokens.large',
     tokens: 1000,
-    priceUsd: 30,
-    appleNetUsdAt30: 21,
+    priceUsd: 34.99,
+    appleNetUsdAt30: 24.49,
   },
 };
 
@@ -90,7 +97,10 @@ export const ACTION_TIER: Record<string, ModelTier> = {
   generate_tests: 'standard',
   refactor_code: 'priority',
   deep_repo_analysis: 'priority',
-  ai_suggestion: 'standard',
+  /** Full-file edits: use priority tier (strongest configured model per provider). */
+  ai_suggestion: 'priority',
+  ai_project_scaffold: 'priority',
+  repo_prompt: 'standard',
   create_branch: 'basic',
   commit: 'basic',
   open_pr: 'basic',
@@ -105,17 +115,17 @@ export type ProviderName = 'openai' | 'anthropic' | 'gemini';
 
 export const MODEL_TIERS: Record<ModelTier, Record<ProviderName, string>> = {
   basic: {
-    openai: process.env.OPENAI_MODEL_BASIC ?? 'gpt-4.1-mini',
+    openai: process.env.OPENAI_MODEL_BASIC ?? OPENAI_LATEST_CHAT_MODEL,
     anthropic: process.env.ANTHROPIC_MODEL_BASIC ?? 'claude-3-5-haiku-20241022',
     gemini: process.env.GEMINI_MODEL_BASIC ?? 'gemini-2.0-flash',
   },
   standard: {
-    openai: process.env.OPENAI_MODEL_STANDARD ?? 'gpt-4.1-mini',
+    openai: process.env.OPENAI_MODEL_STANDARD ?? OPENAI_LATEST_CHAT_MODEL,
     anthropic: process.env.ANTHROPIC_MODEL_STANDARD ?? 'claude-3-5-sonnet-latest',
     gemini: process.env.GEMINI_MODEL_STANDARD ?? 'gemini-2.0-flash',
   },
   priority: {
-    openai: process.env.OPENAI_MODEL_PRIORITY ?? 'gpt-4.1',
+    openai: process.env.OPENAI_MODEL_PRIORITY ?? OPENAI_LATEST_CHAT_MODEL,
     anthropic: process.env.ANTHROPIC_MODEL_PRIORITY ?? 'claude-3-5-sonnet-latest',
     gemini: process.env.GEMINI_MODEL_PRIORITY ?? 'gemini-2.0-flash',
   },

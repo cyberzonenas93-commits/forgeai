@@ -12,7 +12,8 @@ class GitWorkflowScreen extends StatefulWidget {
   final ForgeWorkspaceController controller;
 
   /// Shows a dialog to choose branch and commit message. Returns (branchName, commitMessage) or null if cancelled.
-  static Future<({String branchName, String commitMessage})?> showCommitBranchDialog(
+  static Future<({String branchName, String commitMessage})?>
+  showCommitBranchDialog(
     BuildContext context, {
     required ForgeRepository repo,
     String? initialBranch,
@@ -109,6 +110,7 @@ class _GitWorkflowScreenState extends State<GitWorkflowScreen> {
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
                         initialValue: _mergeMethod,
+                        isExpanded: true,
                         items: const [
                           DropdownMenuItem(
                             value: 'merge',
@@ -133,64 +135,90 @@ class _GitWorkflowScreenState extends State<GitWorkflowScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: [
-                          ForgeSecondaryButton(
-                            label: state.isSubmittingGitAction
-                                ? 'Working...'
-                                : 'Create branch',
-                            icon: Icons.alt_route_rounded,
-                            onPressed: state.isSubmittingGitAction
-                                ? null
-                                : () => _submit(
-                                    context,
-                                    ForgeGitActionType.createBranch,
-                                  ),
-                            expanded: true,
-                          ),
-                          ForgePrimaryButton(
-                            label: 'Commit changes',
-                            icon: Icons.commit_rounded,
-                            onPressed: state.isSubmittingGitAction ||
-                                    state.selectedRepository == null
-                                ? null
-                                : () => _commitWithBranchPicker(context, state),
-                            expanded: true,
-                          ),
-                          ForgeSecondaryButton(
-                            label: 'Deploy via Git',
-                            icon: Icons.rocket_launch_rounded,
-                            onPressed: state.isSubmittingGitAction ||
-                                    state.selectedRepository == null
-                                ? null
-                                : () => _deployFunctionsViaGit(context, state),
-                            expanded: true,
-                          ),
-                          ForgeSecondaryButton(
-                            label: 'Open pull request',
-                            icon: Icons.call_split_rounded,
-                            onPressed: state.isSubmittingGitAction
-                                ? null
-                                : () => _submit(
-                                    context,
-                                    ForgeGitActionType.openPullRequest,
-                                  ),
-                            expanded: true,
-                          ),
-                          ForgeSecondaryButton(
-                            label: 'Merge pull request',
-                            icon: Icons.merge_type_rounded,
-                            onPressed: state.isSubmittingGitAction
-                                ? null
-                                : () => _submit(
-                                    context,
-                                    ForgeGitActionType.mergePullRequest,
-                                  ),
-                            expanded: true,
-                          ),
-                        ],
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final actions = <Widget>[
+                            ForgeSecondaryButton(
+                              label: state.isSubmittingGitAction
+                                  ? 'Working...'
+                                  : 'Create branch',
+                              icon: Icons.alt_route_rounded,
+                              onPressed: state.isSubmittingGitAction
+                                  ? null
+                                  : () => _submit(
+                                      context,
+                                      ForgeGitActionType.createBranch,
+                                    ),
+                              expanded: true,
+                            ),
+                            ForgePrimaryButton(
+                              label: 'Commit changes',
+                              icon: Icons.commit_rounded,
+                              onPressed:
+                                  state.isSubmittingGitAction ||
+                                      state.selectedRepository == null
+                                  ? null
+                                  : () =>
+                                        _commitWithBranchPicker(context, state),
+                              expanded: true,
+                            ),
+                            ForgeSecondaryButton(
+                              label: 'Deploy via Git',
+                              icon: Icons.rocket_launch_rounded,
+                              onPressed:
+                                  state.isSubmittingGitAction ||
+                                      state.selectedRepository == null
+                                  ? null
+                                  : () =>
+                                        _deployFunctionsViaGit(context, state),
+                              expanded: true,
+                            ),
+                            ForgeSecondaryButton(
+                              label: 'Open pull request',
+                              icon: Icons.call_split_rounded,
+                              onPressed: state.isSubmittingGitAction
+                                  ? null
+                                  : () => _submit(
+                                      context,
+                                      ForgeGitActionType.openPullRequest,
+                                    ),
+                              expanded: true,
+                            ),
+                            ForgeSecondaryButton(
+                              label: 'Merge pull request',
+                              icon: Icons.merge_type_rounded,
+                              onPressed: state.isSubmittingGitAction
+                                  ? null
+                                  : () => _submit(
+                                      context,
+                                      ForgeGitActionType.mergePullRequest,
+                                    ),
+                              expanded: true,
+                            ),
+                          ];
+
+                          if (constraints.maxWidth < 520) {
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                for (final action in actions) ...[
+                                  action,
+                                  if (action != actions.last)
+                                    const SizedBox(height: 10),
+                                ],
+                              ],
+                            );
+                          }
+
+                          return Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: [
+                              for (final action in actions)
+                                SizedBox(width: 220, child: action),
+                            ],
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -243,7 +271,9 @@ class _GitWorkflowScreenState extends State<GitWorkflowScreen> {
       context,
       ForgeGitActionType.commit,
       branchName: result.branchName,
-      commitMessage: result.commitMessage.isEmpty ? deployMessage : result.commitMessage,
+      commitMessage: result.commitMessage.isEmpty
+          ? deployMessage
+          : result.commitMessage,
     );
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -348,7 +378,9 @@ class _CommitBranchDialogState extends State<_CommitBranchDialog> {
     final b = widget.repo.branches.isEmpty
         ? <String>[widget.repo.defaultBranch]
         : List<String>.from(widget.repo.branches);
-    if (!b.contains(widget.repo.defaultBranch)) b.insert(0, widget.repo.defaultBranch);
+    if (!b.contains(widget.repo.defaultBranch)) {
+      b.insert(0, widget.repo.defaultBranch);
+    }
     return b;
   }
 
@@ -369,14 +401,20 @@ class _CommitBranchDialogState extends State<_CommitBranchDialog> {
             const SizedBox(height: 12),
             if (branches.isNotEmpty)
               DropdownButtonFormField<String>(
-                value: _dropdownValue ?? branches.first,
+                initialValue: _dropdownValue ?? branches.first,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Branch',
                   border: OutlineInputBorder(),
                 ),
                 items: [
-                  ...branches.map((b) => DropdownMenuItem(value: b, child: Text(b))),
-                  const DropdownMenuItem(value: _newBranchValue, child: Text('New branch…')),
+                  ...branches.map(
+                    (b) => DropdownMenuItem(value: b, child: Text(b)),
+                  ),
+                  const DropdownMenuItem(
+                    value: _newBranchValue,
+                    child: Text('New branch…'),
+                  ),
                 ],
                 onChanged: (v) {
                   setState(() {
@@ -391,7 +429,9 @@ class _CommitBranchDialogState extends State<_CommitBranchDialog> {
             TextField(
               controller: _branchController,
               decoration: InputDecoration(
-                labelText: branches.isNotEmpty ? 'Branch name (or edit above)' : 'Branch name',
+                labelText: branches.isNotEmpty
+                    ? 'Branch name (or edit above)'
+                    : 'Branch name',
                 border: const OutlineInputBorder(),
               ),
               onChanged: (_) => setState(() {}),

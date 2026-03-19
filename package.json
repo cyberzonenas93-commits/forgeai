@@ -18,6 +18,9 @@
     "build:android:release": "node ./tool/flutter_with_launch_env.mjs build appbundle --release",
     "build:ios:sim": "node ./tool/flutter_with_launch_env.mjs build ios --simulator",
     "build:ios:release": "node ./tool/flutter_with_launch_env.mjs build ios --release --no-codesign",
-    "run:app": "node ./tool/flutter_with_launch_env.mjs run"
+    "run:app": "node ./tool/flutter_with_launch_env.mjs run",
+    "setup:iap-secret": "firebase functions:secrets:set APPLE_IAP_SHARED_SECRET",
+    "open:app-store-connect": "open 'https://appstoreconnect.apple.com/apps'",
+    "docs:iap-setup": "open 'docs/APP_STORE_CONNECT_IAP_SETUP.md'"
   }
 }

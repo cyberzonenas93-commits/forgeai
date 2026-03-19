@@ -44,17 +44,21 @@ class LegalDocumentScreen extends StatelessWidget {
             if (!snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
-            return Markdown(
-              data: snapshot.data!,
-              selectable: true,
-              padding: EdgeInsets.zero,
-              styleSheet: MarkdownStyleSheet(
-                p: Theme.of(context).textTheme.bodyMedium,
-                h1: Theme.of(context).textTheme.headlineSmall,
-                h2: Theme.of(context).textTheme.titleLarge,
-                h3: Theme.of(context).textTheme.titleMedium,
-                listIndent: 24,
-                blockSpacing: 12,
+            return SingleChildScrollView(
+              child: Markdown(
+                data: snapshot.data!,
+                selectable: true,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                padding: EdgeInsets.zero,
+                styleSheet: MarkdownStyleSheet(
+                  p: Theme.of(context).textTheme.bodyMedium,
+                  h1: Theme.of(context).textTheme.headlineSmall,
+                  h2: Theme.of(context).textTheme.titleLarge,
+                  h3: Theme.of(context).textTheme.titleMedium,
+                  listIndent: 24,
+                  blockSpacing: 12,
+                ),
               ),
             );
           },

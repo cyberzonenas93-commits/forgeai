@@ -3,9 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>CLIENT_ID</key>
-	<string>560540704761-2l7cj1v94jud4u7kelp9k1qkvgbt0t8v.apps.googleusercontent.com</string>
+	<string>560540704761-pphkpkgs52larj7374tjglrfhs75ojdb.apps.googleusercontent.com</string>
 	<key>REVERSED_CLIENT_ID</key>
-	<string>com.googleusercontent.apps.560540704761-2l7cj1v94jud4u7kelp9k1qkvgbt0t8v</string>
+	<string>com.googleusercontent.apps.560540704761-pphkpkgs52larj7374tjglrfhs75ojdb</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>560540704761-he46h40ke60ho1a19pdoqmb7673c7rk7.apps.googleusercontent.com</string>
 	<key>API_KEY</key>
 	<string>AIzaSyC7yYVCr3KfgfrjnzTEm5POcUohPcqqrvc</string>
 	<key>GCM_SENDER_ID</key>
@@ -13,7 +15,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.forgeai.app</string>
+	<string>com.angelonartey.forgeai.</string>
 	<key>PROJECT_ID</key>
 	<string>forgeai-555ee</string>
 	<key>STORAGE_BUCKET</key>
@@ -29,6 +31,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:560540704761:ios:b731e8b285335363a0e728</string>
+	<string>1:560540704761:ios:ecde7e369131f932a0e728</string>
 </dict>
 </plist>

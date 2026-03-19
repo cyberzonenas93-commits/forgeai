@@ -1,13 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-export type ProviderName = 'github' | 'gitlab' | 'openai' | 'anthropic' | 'gemini';
+export type ProviderName = 'github' | 'openai' | 'anthropic' | 'gemini';
 export type AiProviderName = Extract<ProviderName, 'openai' | 'anthropic' | 'gemini'>;
 export type ForgeAppEnv = 'local' | 'beta' | 'production';
 
 export const PROVIDER_NAMES: readonly ProviderName[] = [
   'github',
-  'gitlab',
   'openai',
   'anthropic',
   'gemini',
@@ -19,7 +18,6 @@ export const AI_PROVIDER_NAMES: readonly AiProviderName[] = [
 
 const PROVIDER_SECRET_MAP: Record<ProviderName, string[]> = {
   github: ['GITHUB_TOKEN', 'GITHUB_APP_TOKEN'],
-  gitlab: ['GITLAB_TOKEN'],
   openai: ['OPENAI_API_KEY'],
   anthropic: ['ANTHROPIC_API_KEY'],
   gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
@@ -241,7 +239,7 @@ export function assertRuntimeConfiguration() {
         : null,
     ].filter(Boolean);
     throw new Error(
-      `ForgeAI runtime validation failed: ${missingSegments.join(' | ')}`,
+      `CodeCatalystAI runtime validation failed: ${missingSegments.join(' | ')}`,
     );
   }
   return validation;

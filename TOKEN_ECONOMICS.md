@@ -1,55 +1,58 @@
 # Token Economics
 
 ## Token Value
-- `1 token = $0.0010` app revenue assumption
+- **1 Forge token ≈ $0.05** effective value (user perspective via actions). Real cost ~$0.003–$0.02. Config: `FORGEAI_TOKEN_VALUE_USD=0.05`.
 
-## Action Pricing
-- `create_branch`: 12 tokens
-- `commit`: 24 tokens
-- `open_pr`: 16 tokens
-- `merge_pr`: 18 tokens
-- `run_tests`: 30 tokens
-- `run_lint`: 10 tokens
-- `build_project`: 40 tokens
-- `ai_suggestion`: 80 token floor
+## Action Pricing (default config)
 
-Source of truth: `functions/src/pricing.ts`
+| Action | Tokens | Tier |
+|--------|--------|------|
+| explain_code | 2 | simple |
+| fix_bug | 6 | medium |
+| generate_tests | 8 | medium |
+| refactor_code | 10 | heavy |
+| deep_repo_analysis | 25 | heavy |
+| ai_suggestion | 8 | medium |
+| create_branch | 12 | simple |
+| commit | 24 | simple |
+| open_pr | 16 | simple |
+| merge_pr | 18 | simple |
+| run_tests | 30 | medium |
+| run_lint | 10 | simple |
+| build_project | 40 | medium |
 
-## Provider Cost Assumptions
-- OpenAI: `$0.0004 / 1K input`, `$0.0016 / 1K output`
-- Anthropic: `$0.0030 / 1K input`, `$0.0150 / 1K output`
-- Gemini: `$0.00015 / 1K input`, `$0.00060 / 1K output`
+Source of truth: `functions/src/pricing.ts` and `config/monetization.json`. Flutter display: `lib/src/core/config/forge_economics_config.dart`.
 
-## Daily Caps
-- `create_branch`: 80
-- `commit`: 80
-- `open_pr`: 80
-- `merge_pr`: 60
-- `run_tests`: 40
-- `run_lint`: 80
-- `build_project`: 30
-- `ai_suggestion`: 30
+## Provider Cost Assumptions (backend)
+- **Blended target**: input $1/1M, output $4/1M (typical request ~2k in / 1k out ≈ $0.006).
+- Per-provider env overrides: `OPENAI_INPUT_COST_PER_1K_USD`, `OPENAI_OUTPUT_COST_PER_1K_USD`, etc.
 
-Daily caps are now enforced during reservation in the backend wallet path.
+## Margin Strategy
+- Minimum **5x** gross margin on AI cost; prefer **8x+** where feasible.
+- All pricing is tuned to remain profitable after Apple’s 30% IAP cut.
 
-## Monthly Caps
-- Enforced when `wallet.monthlyLimit > 0`
-- Capture fails if the next token charge would exceed the configured monthly limit
+## Plans and Caps
+- **Free**: 20 tokens/mo, 10 actions/day, basic model tier.
+- **Pro**: $14.99/mo (Apple net ~$10.49), 300 tokens/mo, 50 actions/day, standard tier.
+- **Power**: $29.99/mo (Apple net ~$20.99), 800 tokens/mo, 150 actions/day, priority tier.
+
+## Top-Up Packs (production)
+- pack_small: 100 tokens → **$5.99** (Apple net $4.19)
+- pack_medium: 300 tokens → **$14.99** (Apple net $10.49)
+- pack_large: 1000 tokens → **$34.99** (Apple net $24.49)
+
+## Daily / Monthly Limits
+- Plan-based **daily action cap** (total actions per day) enforced in backend.
+- Per-action-type daily caps from pricing rules.
+- Monthly included tokens and monthly used enforced on capture.
 
 ## Refund Rules
-- AI suggestion: release reservation on generation failure
-- Git actions: release reservation on remote failure, missing provider config, or empty commit payload
-- Check actions: release reservation on dispatch failure or missing provider config
+- AI: release reservation on provider failure; capture only after a reviewable draft is created.
+- Git: release on remote failure or missing provider config.
+- Checks: release on dispatch failure or missing provider config.
 
-## Margin Verification
-Run:
+## Verification
 ```bash
 npm run simulate:tokens
 ```
-
-Current modeled margins from the simulator are above 90% for light, typical, and heavy beta scenarios under the present assumptions.
-
-## Beta Protections
-- Guest and signed-in limits remain policy-controlled in wallet documents
-- No token capture occurs without a matching reservation
-- Queued or failed actions now release previously reserved tokens where required
+See `REVENUE_SIMULATION.md` for scenario descriptions and margin thresholds.

@@ -30,6 +30,7 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
       builder: (context, state, _) {
         final estimate = (_promptController.text.length / 3).ceil() + 240;
         final changeRequest = state.currentChangeRequest;
+        final balance = state.wallet.balance.toInt();
         return Scaffold(
           backgroundColor: Colors.transparent,
           body: ForgeScreen(
@@ -40,10 +41,10 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const ForgeSectionHeader(
+                      ForgeSectionHeader(
                         title: 'Ask in plain language',
                         subtitle:
-                            'Describe the change you want in free-form English. The AI will edit the open file and show a diff for you to review before anything is committed.',
+                            'Describe what you want in free-form English. The AI can rewrite the entire open file or draft full content for that path (including new files once the path is open). Tokens are charged when a suggestion is generated successfully. Wallet: $balance tokens.',
                       ),
                       const SizedBox(height: 16),
                       const SizedBox(height: 16),
@@ -53,7 +54,7 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                         decoration: const InputDecoration(
                           labelText: 'What should change?',
                           hintText:
-                              'e.g. "Add a null check before using this" or "Rename fetchData to loadUserProfile" or "Extract this into a helper function"',
+                              'e.g. small edits, full rewrites, or "Scaffold a new widget in this file"',
                         ),
                         onChanged: (_) => setState(() {}),
                       ),
@@ -77,7 +78,7 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                       const SizedBox(height: 12),
                       if (state.isRunningAi) const ForgeAiIndicator(),
                       Text(
-                        '$estimate tokens estimated • review the diff before committing',
+                        '~$estimate tokens estimated • charged on success • review the diff before committing',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: ForgePalette.textSecondary,
                         ),

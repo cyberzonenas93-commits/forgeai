@@ -7,7 +7,7 @@ Use this template for TestFlight, internal QA, or direct tester reports.
 - Email:
 - Device model:
 - iOS version:
-- ForgeAI app version:
+- CodeCatalystAI app version:
 - Beta channel:
 
 ## Flow Tested
@@ -21,7 +21,7 @@ Use this template for TestFlight, internal QA, or direct tester reports.
 - Account deletion
 
 ## Repository Context
-- Provider: GitHub / GitLab
+- Provider: GitHub / GitHub
 - Repository name:
 - Branch used:
 - Smoke-safe repo: yes / no
@@ -50,7 +50,7 @@ Use this template for TestFlight, internal QA, or direct tester reports.
 ## Suggested Labels
 - `auth`
 - `github`
-- `gitlab`
+- `github`
 - `editor`
 - `ai`
 - `wallet`

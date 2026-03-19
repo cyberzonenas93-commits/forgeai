@@ -5,9 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
+import '../../core/branding/app_branding.dart';
 import '../../core/theme/forge_palette.dart';
-import '../../shared/forge_models.dart';
 import '../../shared/widgets/forge_widgets.dart';
+import 'prompt_git_intents.dart';
 import '../workspace/application/forge_workspace_controller.dart';
 import '../workspace/domain/forge_workspace_entities.dart';
 import '../workspace/domain/forge_workspace_state.dart';
@@ -31,22 +32,35 @@ class _AskScreenState extends State<AskScreen> {
   final TextEditingController _workflowController = TextEditingController(
     text: 'run-app.yml',
   );
+  final TextEditingController _deployWorkflowController = TextEditingController(
+    text: 'deploy-functions.yml',
+  );
   final ScrollController _scrollController = ScrollController();
-  final TextEditingController _commitMessageController = TextEditingController(text: 'chore: update code from prompt');
+  final TextEditingController _commitMessageController = TextEditingController(
+    text: 'chore: update code from prompt',
+  );
   final TextEditingController _newBranchController = TextEditingController();
   String? _selectedCommitBranch;
   final ImagePicker _imagePicker = ImagePicker();
   final stt.SpeechToText _speechToText = stt.SpeechToText();
-  final List<ForgePromptMediaAttachment> _pendingMedia = <ForgePromptMediaAttachment>[];
+  final List<ForgePromptMediaAttachment> _pendingMedia =
+      <ForgePromptMediaAttachment>[];
   bool _isWorking = false;
   bool _speechReady = false;
   bool _isListening = false;
   String _speechSeedText = '';
   bool _showHeaderChrome = true;
-  String? _lastAutoScrollThreadId;
-  int _lastAutoScrollItemCount = -1;
+
+  /// Bumps when thread / messages / loading change — keep view pinned to latest
+  /// (WhatsApp-style [ListView.reverse] anchor at composer).
+  String? _lastChatScrollSignature;
+  bool _showDeployChip = false;
 
   static const String _newBranchOption = '__new_branch__';
+
+  void _dismissKeyboard() {
+    FocusManager.instance.primaryFocus?.unfocus();
+  }
 
   String _compactError(Object error) {
     final raw = error.toString().trim();
@@ -69,10 +83,26 @@ class _AskScreenState extends State<AskScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _inputController.addListener(_onInputChanged);
+  }
+
+  void _onInputChanged() {
+    final text = _inputController.text.trim().toLowerCase();
+    final show = text.contains('deploy') && text.contains('function');
+    if (show != _showDeployChip) {
+      setState(() => _showDeployChip = show);
+    }
+  }
+
+  @override
   void dispose() {
+    _inputController.removeListener(_onInputChanged);
     _speechToText.cancel();
     _inputController.dispose();
     _workflowController.dispose();
+    _deployWorkflowController.dispose();
     _commitMessageController.dispose();
     _newBranchController.dispose();
     _scrollController.dispose();
@@ -99,23 +129,23 @@ class _AskScreenState extends State<AskScreen> {
 
   void _showPromptSnack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _autoScrollToLatest() {
+  /// Pin scroll to the newest messages (offset 0 with [ListView.reverse]).
+  void _scrollTranscriptToEnd() {
+    void jump() {
+      if (!mounted || !_scrollController.hasClients) return;
+      _scrollController.jumpTo(_scrollController.position.minScrollExtent);
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      final position = _scrollController.position.maxScrollExtent;
-      _scrollController.animateTo(
-        position,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOut,
-      );
+      jump();
+      WidgetsBinding.instance.addPostFrameCallback((_) => jump());
     });
   }
-
 
   String _guessMimeType(String name) {
     final n = name.toLowerCase();
@@ -148,7 +178,9 @@ class _AskScreenState extends State<AskScreen> {
         _pendingMedia.add(attachment);
       });
     } catch (e) {
-      widget.controller.addPromptAssistantMessage('Media attach failed: ${_compactError(e)}');
+      widget.controller.addPromptAssistantMessage(
+        'Media attach failed: ${_compactError(e)}',
+      );
     }
   }
 
@@ -191,14 +223,15 @@ class _AskScreenState extends State<AskScreen> {
 
     _speechSeedText = _inputController.text.trim();
     final started = await _speechToText.listen(
-      partialResults: true,
-      listenMode: stt.ListenMode.confirmation,
+      listenOptions: stt.SpeechListenOptions(
+        partialResults: true,
+        listenMode: stt.ListenMode.dictation,
+      ),
       onResult: (result) {
         final spoken = result.recognizedWords.trim();
-        final nextText = [
-          _speechSeedText,
-          if (spoken.isNotEmpty) spoken,
-        ].where((item) => item.isNotEmpty).join(_speechSeedText.isEmpty ? '' : ' ');
+        final nextText = [_speechSeedText, if (spoken.isNotEmpty) spoken]
+            .where((item) => item.isNotEmpty)
+            .join(_speechSeedText.isEmpty ? '' : ' ');
         _inputController.value = TextEditingValue(
           text: nextText,
           selection: TextSelection.collapsed(offset: nextText.length),
@@ -229,13 +262,40 @@ class _AskScreenState extends State<AskScreen> {
         : _workflowController.text.trim();
     setState(() => _isWorking = true);
     try {
-      final logsUrl = await widget.controller.runAppWorkflow(workflowName: workflow);
+      final logsUrl = await widget.controller.runAppWorkflow(
+        workflowName: workflow,
+      );
       final msg = logsUrl == null || logsUrl.isEmpty
-          ? 'Workflow dispatched. Open the latest run in your Git provider for logs/artifacts.'
-          : 'Workflow dispatched. Logs: $logsUrl';
+          ? '**Run app via Git** — workflow `$workflow` dispatched. Open the latest GitHub Actions run for logs and artifacts. If the workflow is missing, say **install run app** or use Prompt tools → Install run-app.yml.'
+          : '**Run app via Git** — workflow dispatched. Logs: $logsUrl';
       widget.controller.addPromptAssistantMessage(msg);
     } catch (e) {
-      widget.controller.addPromptAssistantMessage('Run failed: ${_compactError(e)}');
+      widget.controller.addPromptAssistantMessage(
+        'Run failed: ${_compactError(e)}',
+      );
+    } finally {
+      if (mounted) setState(() => _isWorking = false);
+    }
+  }
+
+  Future<void> _runDeployFunctionsViaGit() async {
+    if (_isWorking) return;
+    final workflow = _deployWorkflowController.text.trim().isEmpty
+        ? 'deploy-functions.yml'
+        : _deployWorkflowController.text.trim();
+    setState(() => _isWorking = true);
+    try {
+      final logsUrl = await widget.controller.runDeployFunctionsWorkflow(
+        workflowName: workflow,
+      );
+      final msg = logsUrl == null || logsUrl.isEmpty
+          ? '**Deploy functions** — workflow `$workflow` dispatched. Ensure GitHub repo **Actions** secrets include either `FIREBASE_TOKEN` (easy: `firebase login:ci`) or `FIREBASE_SERVICE_ACCOUNT` (recommended). If the file is missing, say **install deploy workflow** or use Prompt tools.'
+          : '**Deploy functions** — workflow dispatched. Logs: $logsUrl';
+      widget.controller.addPromptAssistantMessage(msg);
+    } catch (e) {
+      widget.controller.addPromptAssistantMessage(
+        'Deploy failed: ${_compactError(e)}',
+      );
     } finally {
       if (mounted) setState(() => _isWorking = false);
     }
@@ -310,12 +370,44 @@ class _AskScreenState extends State<AskScreen> {
         'Installed .github/workflows/run-app.yml on ${draft.branchName}. You can now tap Run app via Git to execute and collect logs/screenshots.',
       );
     } catch (e) {
-      widget.controller.addPromptAssistantMessage('Install failed: ${_compactError(e)}');
+      widget.controller.addPromptAssistantMessage(
+        'Install failed: ${_compactError(e)}',
+      );
     } finally {
       if (mounted) setState(() => _isWorking = false);
     }
   }
 
+  Future<void> _installDeployFunctionsWorkflow(
+    ForgeWorkspaceState state,
+  ) async {
+    final selected = state.selectedRepository;
+    if (selected == null || _isWorking) return;
+    final draft = await _askBranchAndCommit(
+      defaultBranch: state.selectedBranch ?? selected.defaultBranch,
+      defaultMessage: 'chore: add deploy-functions workflow',
+    );
+    if (draft == null) return;
+
+    setState(() => _isWorking = true);
+    try {
+      await widget.controller.installDeployFunctionsWorkflowViaGit(
+        branchName: draft.branchName,
+        commitMessage: draft.commitMessage,
+      );
+      widget.controller.addPromptAssistantMessage(
+        'Installed `.github/workflows/deploy-functions.yml` on `${draft.branchName}`. '
+        'Add GitHub **Actions** secret **`FIREBASE_TOKEN`** (easy: `firebase login:ci`) '
+        'or **`FIREBASE_SERVICE_ACCOUNT`** (recommended), then say **deploy functions** to run it.',
+      );
+    } catch (e) {
+      widget.controller.addPromptAssistantMessage(
+        'Install failed: ${_compactError(e)}',
+      );
+    } finally {
+      if (mounted) setState(() => _isWorking = false);
+    }
+  }
 
   Future<void> _commitAndPush(ForgeWorkspaceState state) async {
     final repo = state.selectedRepository;
@@ -323,13 +415,14 @@ class _AskScreenState extends State<AskScreen> {
       return;
     }
 
-    final branch = (_selectedCommitBranch == null || _selectedCommitBranch!.isEmpty)
+    final branch =
+        (_selectedCommitBranch == null || _selectedCommitBranch!.isEmpty)
         ? (state.selectedBranch ?? repo.defaultBranch)
         : (_selectedCommitBranch == _newBranchOption
-            ? (_newBranchController.text.trim().isEmpty
-                ? (state.selectedBranch ?? repo.defaultBranch)
-                : _newBranchController.text.trim())
-            : _selectedCommitBranch!);
+              ? (_newBranchController.text.trim().isEmpty
+                    ? (state.selectedBranch ?? repo.defaultBranch)
+                    : _newBranchController.text.trim())
+              : _selectedCommitBranch!);
     final commitMsg = _commitMessageController.text.trim().isEmpty
         ? 'chore: update code from prompt'
         : _commitMessageController.text.trim();
@@ -363,6 +456,14 @@ class _AskScreenState extends State<AskScreen> {
     final isBusy = state.isPromptLoading || _isWorking;
     if (text.isEmpty || isBusy) return;
 
+    final quick = matchPromptGitQuickCommand(text);
+    if (quick != null) {
+      _inputController.clear();
+      setState(() => _pendingMedia.clear());
+      await _handlePromptGitQuickCommand(quick, text, state);
+      return;
+    }
+
     _inputController.clear();
     try {
       final media = List<ForgePromptMediaAttachment>.from(_pendingMedia);
@@ -371,18 +472,40 @@ class _AskScreenState extends State<AskScreen> {
       });
       await widget.controller.sendPromptMessage(text, media: media);
       if (!mounted) return;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(
-            _scrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOut,
-          );
-        }
-      });
+      _scrollTranscriptToEnd();
     } catch (e) {
       widget.controller.addPromptAssistantMessage('Error: ${_compactError(e)}');
     }
+  }
+
+  Future<void> _handlePromptGitQuickCommand(
+    PromptGitQuickCommand cmd,
+    String originalText,
+    ForgeWorkspaceState state,
+  ) async {
+    widget.controller.ensurePromptThreadReady();
+    widget.controller.addPromptUserMessage(originalText);
+
+    final repo = state.selectedRepository;
+    if (repo == null) {
+      widget.controller.addPromptAssistantMessage(
+        'Pick a repository first: open the **Repo** tab and select a project, or set this thread’s scope to a repo.',
+      );
+      _scrollTranscriptToEnd();
+      return;
+    }
+
+    switch (cmd) {
+      case PromptGitQuickCommand.runAppViaGit:
+        await _runAppViaGit();
+      case PromptGitQuickCommand.deployFunctionsViaGit:
+        await _runDeployFunctionsViaGit();
+      case PromptGitQuickCommand.installRunAppWorkflow:
+        await _installRunAppWorkflow(state);
+      case PromptGitQuickCommand.installDeployWorkflow:
+        await _installDeployFunctionsWorkflow(state);
+    }
+    if (mounted) _scrollTranscriptToEnd();
   }
 
   Future<void> _renameThread(ForgePromptThread thread) async {
@@ -445,16 +568,20 @@ class _AskScreenState extends State<AskScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('Prompt tools', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    'Prompt tools',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 12),
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Danger Mode (max autonomy)'),
+                    title: const Text('Autonomous agent mode'),
                     subtitle: const Text(
-                      'AI becomes aggressive and action-oriented. Use with caution.',
+                      'AI takes a stronger coding-agent posture (acts first, asks fewer clarifying questions, and proposes concrete file-level changes).',
                     ),
                     value: state.promptDangerMode,
-                    onChanged: (value) => widget.controller.setPromptDangerMode(value),
+                    onChanged: (value) =>
+                        widget.controller.setPromptDangerMode(value),
                   ),
                   const SizedBox(height: 10),
                   TextField(
@@ -474,10 +601,14 @@ class _AskScreenState extends State<AskScreen> {
                       ForgeSecondaryButton(
                         label: _isWorking ? 'Running...' : 'Run app via Git',
                         icon: Icons.play_arrow_rounded,
-                        onPressed: repo == null || _isWorking ? null : _runAppViaGit,
+                        onPressed: repo == null || _isWorking
+                            ? null
+                            : _runAppViaGit,
                       ),
                       ForgeSecondaryButton(
-                        label: _isWorking ? 'Working...' : 'Install run-app.yml',
+                        label: _isWorking
+                            ? 'Working...'
+                            : 'Install run-app.yml',
                         icon: Icons.download_rounded,
                         onPressed: repo == null || _isWorking
                             ? null
@@ -486,7 +617,45 @@ class _AskScreenState extends State<AskScreen> {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  Text('Commit & push', style: Theme.of(context).textTheme.titleSmall),
+                  TextField(
+                    controller: _deployWorkflowController,
+                    decoration: const InputDecoration(
+                      labelText: 'Deploy workflow file',
+                      hintText: 'deploy-functions.yml',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ForgeSecondaryButton(
+                        label: _isWorking
+                            ? 'Deploying...'
+                            : 'Deploy functions via Git',
+                        icon: Icons.cloud_upload_rounded,
+                        onPressed: repo == null || _isWorking
+                            ? null
+                            : _runDeployFunctionsViaGit,
+                      ),
+                      ForgeSecondaryButton(
+                        label: _isWorking
+                            ? 'Working...'
+                            : 'Install deploy-functions.yml',
+                        icon: Icons.download_rounded,
+                        onPressed: repo == null || _isWorking
+                            ? null
+                            : () => _installDeployFunctionsWorkflow(state),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'Commit & push',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
                     initialValue: (_selectedCommitBranch == _newBranchOption)
@@ -576,7 +745,9 @@ class _AskScreenState extends State<AskScreen> {
               title: const Text('All projects'),
               onTap: () {
                 if (current != null) {
-                  unawaited(widget.controller.setPromptThreadRepo(current.id, null));
+                  unawaited(
+                    widget.controller.setPromptThreadRepo(current.id, null),
+                  );
                 }
                 Navigator.of(context).pop();
               },
@@ -594,7 +765,10 @@ class _AskScreenState extends State<AskScreen> {
                   onTap: () {
                     if (current != null) {
                       unawaited(
-                        widget.controller.setPromptThreadRepo(current.id, repo.id),
+                        widget.controller.setPromptThreadRepo(
+                          current.id,
+                          repo.id,
+                        ),
                       );
                     } else {
                       unawaited(widget.controller.selectRepository(repo));
@@ -623,11 +797,7 @@ class _AskScreenState extends State<AskScreen> {
                       ? Icons.check_circle_rounded
                       : Icons.chat_bubble_outline_rounded,
                 ),
-                title: Text(
-                  t.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                title: Text(t.title),
                 subtitle: Text(
                   t.repoId == null ? 'All projects' : 'Single project',
                 ),
@@ -664,114 +834,110 @@ class _AskScreenState extends State<AskScreen> {
       builder: (context, state, _) {
         final thread = _currentThread(state);
         final isBusy = state.isPromptLoading || _isWorking;
-        final repoForThread = state.repositories.where((r) => r.id == thread?.repoId).isNotEmpty
+        final repoForThread =
+            state.repositories.where((r) => r.id == thread?.repoId).isNotEmpty
             ? state.repositories.firstWhere((r) => r.id == thread!.repoId)
             : null;
         final isAllProjects = thread?.repoId == null;
-        final repoLabel = isAllProjects ? 'All projects' : (repoForThread?.name ?? 'Pick project');
+        final repoLabel = isAllProjects
+            ? 'All projects'
+            : (repoForThread?.name ?? 'Pick project');
         final messages = thread?.messages ?? const <ForgePromptMessage>[];
-        final listItemCount = messages.length + (state.isPromptLoading ? 1 : 0);
         final showPromptProgress =
             state.isPromptLoading && state.promptStatusThreadId == thread?.id;
-        if (_lastAutoScrollThreadId != thread?.id ||
-            _lastAutoScrollItemCount != listItemCount) {
-          _lastAutoScrollThreadId = thread?.id;
-          _lastAutoScrollItemCount = listItemCount;
-          _autoScrollToLatest();
+        final lastMsgId = messages.isEmpty ? '' : messages.last.id;
+        final scrollSignature =
+            '${thread?.id ?? ''}|len:${messages.length}|load:${state.isPromptLoading}|last:$lastMsgId';
+        if (_lastChatScrollSignature != scrollSignature) {
+          _lastChatScrollSignature = scrollSignature;
+          _scrollTranscriptToEnd();
         }
+        final tokenBalance = state.wallet.balance.toInt();
 
         return Scaffold(
           backgroundColor: Colors.transparent,
-          body: ForgeScreen(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  padding: EdgeInsets.fromLTRB(16, _showHeaderChrome ? 12 : 4, 16, 8),
-                  child: AnimatedCrossFade(
-                    duration: const Duration(milliseconds: 180),
-                    crossFadeState: _showHeaderChrome
-                        ? CrossFadeState.showFirst
-                        : CrossFadeState.showSecond,
-                    firstChild: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                thread?.title ?? 'Prompt',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.titleLarge,
-                              ),
-                              const SizedBox(height: 4),
-                              GestureDetector(
-                                onTap: () => _openScopeSheet(state),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.folder_rounded,
-                                      size: 16,
-                                      color: ForgePalette.glowAccent,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Flexible(
-                                      child: Text(
-                                        repoLabel,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                          color: ForgePalette.textSecondary,
+          body: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: _dismissKeyboard,
+            child: ForgeScreen(
+              // Tighter bottom inset so the composer sits lower (closer to the tab bar).
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      _showHeaderChrome ? 12 : 4,
+                      16,
+                      8,
+                    ),
+                    child: AnimatedCrossFade(
+                      duration: const Duration(milliseconds: 180),
+                      crossFadeState: _showHeaderChrome
+                          ? CrossFadeState.showFirst
+                          : CrossFadeState.showSecond,
+                      firstChild: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  thread?.title ?? 'Prompt',
+                                  style: Theme.of(context).textTheme.titleLarge,
+                                ),
+                                const SizedBox(height: 4),
+                                GestureDetector(
+                                  onTap: () => _openScopeSheet(state),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.folder_rounded,
+                                        size: 16,
+                                        color: ForgePalette.glowAccent,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Flexible(
+                                        child: Text(
+                                          repoLabel,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                                color:
+                                                    ForgePalette.textSecondary,
+                                              ),
                                         ),
                                       ),
-                                    ),
-                                    const SizedBox(width: 2),
-                                    const Icon(
-                                      Icons.arrow_drop_down_rounded,
-                                      size: 18,
-                                      color: ForgePalette.textSecondary,
-                                    ),
-                                  ],
+                                      const SizedBox(width: 2),
+                                      const Icon(
+                                        Icons.arrow_drop_down_rounded,
+                                        size: 18,
+                                        color: ForgePalette.textSecondary,
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Each reply uses tokens ($tokenBalance available). Use Code → AI edit for file changes.',
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
+                                        color: ForgePalette.textSecondary,
+                                      ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        IconButton(
-                          tooltip: 'Hide header',
-                          onPressed: () {
-                            setState(() {
-                              _showHeaderChrome = false;
-                            });
-                          },
-                          icon: const Icon(Icons.keyboard_arrow_up_rounded),
-                        ),
-                        IconButton(
-                          tooltip: 'Threads',
-                          onPressed: () => _openThreadSheet(state),
-                          icon: const Icon(Icons.chat_bubble_outline_rounded),
-                        ),
-                        IconButton(
-                          tooltip: 'Prompt tools',
-                          onPressed: () => _openToolsSheet(state),
-                          icon: const Icon(Icons.tune_rounded),
-                        ),
-                      ],
-                    ),
-                    secondChild: Align(
-                      alignment: Alignment.centerRight,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
                           IconButton(
-                            tooltip: 'Show header',
+                            tooltip: 'Hide header',
                             onPressed: () {
                               setState(() {
-                                _showHeaderChrome = true;
+                                _showHeaderChrome = false;
                               });
                             },
-                            icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                            icon: const Icon(Icons.keyboard_arrow_up_rounded),
                           ),
                           IconButton(
                             tooltip: 'Threads',
@@ -785,245 +951,374 @@ class _AskScreenState extends State<AskScreen> {
                           ),
                         ],
                       ),
+                      secondChild: Align(
+                        alignment: Alignment.centerRight,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Show header',
+                              onPressed: () {
+                                setState(() {
+                                  _showHeaderChrome = true;
+                                });
+                              },
+                              icon: const Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Threads',
+                              onPressed: () => _openThreadSheet(state),
+                              icon: const Icon(
+                                Icons.chat_bubble_outline_rounded,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Prompt tools',
+                              onPressed: () => _openToolsSheet(state),
+                              icon: const Icon(Icons.tune_rounded),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                ),
-                Expanded(
-                  child: Column(
-                    children: [
-                      const Divider(height: 1),
-                      Expanded(
-                        child: messages.isEmpty && !state.isPromptLoading
-                            ? Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(28),
-                                  child: Text(
-                                    'Start vibecoding: describe what you want to build or change.',
-                                    style: Theme.of(context).textTheme.bodyMedium
-                                        ?.copyWith(color: ForgePalette.textSecondary),
-                                    textAlign: TextAlign.center,
+                  Expanded(
+                    child: Column(
+                      children: [
+                        const Divider(height: 1),
+                        Expanded(
+                          child: messages.isEmpty && !state.isPromptLoading
+                              ? Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(28),
+                                    child: Text(
+                                      'Start vibecoding: describe what you want to build or change.',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            color: ForgePalette.textSecondary,
+                                          ),
+                                      textAlign: TextAlign.center,
+                                    ),
                                   ),
-                                ),
-                              )
-                            : ListView.builder(
-                                controller: _scrollController,
-                                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                                itemCount: messages.length + (state.isPromptLoading ? 1 : 0),
-                                itemBuilder: (context, index) {
-                                  if (index == messages.length) {
-                                    if (!showPromptProgress) {
-                                      return const SizedBox.shrink();
+                                )
+                              : ListView.builder(
+                                  controller: _scrollController,
+                                  // Newest rows sit next to the composer (WhatsApp-style).
+                                  reverse: true,
+                                  keyboardDismissBehavior:
+                                      ScrollViewKeyboardDismissBehavior.onDrag,
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    12,
+                                    16,
+                                    12,
+                                  ),
+                                  itemCount:
+                                      messages.length +
+                                      (showPromptProgress ? 1 : 0),
+                                  itemBuilder: (context, index) {
+                                    if (showPromptProgress && index == 0) {
+                                      return Padding(
+                                        padding: const EdgeInsets.only(top: 12),
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: ConstrainedBox(
+                                            constraints: BoxConstraints(
+                                              maxWidth:
+                                                  MediaQuery.of(
+                                                    context,
+                                                  ).size.width *
+                                                  0.88,
+                                            ),
+                                            child: ForgePanel(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 14,
+                                                    vertical: 12,
+                                                  ),
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Row(
+                                                    children: [
+                                                      const SizedBox(
+                                                        width: 18,
+                                                        height: 18,
+                                                        child:
+                                                            CircularProgressIndicator(
+                                                              strokeWidth: 2,
+                                                            ),
+                                                      ),
+                                                      const SizedBox(width: 10),
+                                                      Expanded(
+                                                        child: Text(
+                                                          state.promptStatusText ??
+                                                              'Thinking...',
+                                                          style:
+                                                              Theme.of(context)
+                                                                  .textTheme
+                                                                  .titleSmall,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  if (state
+                                                      .promptStatusSteps
+                                                      .isNotEmpty) ...[
+                                                    const SizedBox(height: 10),
+                                                    ...state.promptStatusSteps
+                                                        .take(5)
+                                                        .map(
+                                                          (step) => Padding(
+                                                            padding:
+                                                                const EdgeInsets.only(
+                                                                  bottom: 6,
+                                                                ),
+                                                            child: Row(
+                                                              crossAxisAlignment:
+                                                                  CrossAxisAlignment
+                                                                      .start,
+                                                              children: [
+                                                                const Padding(
+                                                                  padding:
+                                                                      EdgeInsets.only(
+                                                                        top: 6,
+                                                                      ),
+                                                                  child: Icon(
+                                                                    Icons
+                                                                        .circle,
+                                                                    size: 6,
+                                                                    color: ForgePalette
+                                                                        .textSecondary,
+                                                                  ),
+                                                                ),
+                                                                const SizedBox(
+                                                                  width: 8,
+                                                                ),
+                                                                Expanded(
+                                                                  child: Text(
+                                                                    step,
+                                                                    style: Theme.of(context)
+                                                                        .textTheme
+                                                                        .bodySmall
+                                                                        ?.copyWith(
+                                                                          color:
+                                                                              ForgePalette.textSecondary,
+                                                                        ),
+                                                                  ),
+                                                                ),
+                                                              ],
+                                                            ),
+                                                          ),
+                                                        ),
+                                                  ],
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      );
                                     }
+                                    final msgIndex = showPromptProgress
+                                        ? index - 1
+                                        : index;
+                                    final msg =
+                                        messages[messages.length -
+                                            1 -
+                                            msgIndex];
+                                    final isUser = msg.role == 'user';
                                     return Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                      padding: const EdgeInsets.only(top: 12),
                                       child: Align(
-                                        alignment: Alignment.centerLeft,
+                                        alignment: isUser
+                                            ? Alignment.centerRight
+                                            : Alignment.centerLeft,
                                         child: ConstrainedBox(
                                           constraints: BoxConstraints(
                                             maxWidth:
-                                                MediaQuery.of(context).size.width * 0.88,
+                                                MediaQuery.of(
+                                                  context,
+                                                ).size.width *
+                                                0.85,
                                           ),
                                           child: ForgePanel(
+                                            backgroundColor: isUser
+                                                ? ForgePalette.glowAccent
+                                                      .withValues(alpha: 0.15)
+                                                : null,
                                             padding: const EdgeInsets.symmetric(
                                               horizontal: 14,
                                               vertical: 12,
                                             ),
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                Row(
-                                                  children: [
-                                                    const SizedBox(
-                                                      width: 18,
-                                                      height: 18,
-                                                      child: CircularProgressIndicator(
-                                                        strokeWidth: 2,
-                                                      ),
-                                                    ),
-                                                    const SizedBox(width: 10),
-                                                    Expanded(
-                                                      child: Text(
-                                                        state.promptStatusText ?? 'Thinking...',
-                                                        style: Theme.of(context)
-                                                            .textTheme
-                                                            .titleSmall,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                                if (state.promptStatusSteps.isNotEmpty) ...[
-                                                  const SizedBox(height: 10),
-                                                  ...state.promptStatusSteps
-                                                      .take(5)
-                                                      .map(
-                                                        (step) => Padding(
-                                                          padding: const EdgeInsets.only(
-                                                            bottom: 6,
-                                                          ),
-                                                          child: Row(
-                                                            crossAxisAlignment:
-                                                                CrossAxisAlignment.start,
-                                                            children: [
-                                                              const Padding(
-                                                                padding:
-                                                                    EdgeInsets.only(top: 6),
-                                                                child: Icon(
-                                                                  Icons.circle,
-                                                                  size: 6,
-                                                                  color: ForgePalette
-                                                                      .textSecondary,
-                                                                ),
-                                                              ),
-                                                              const SizedBox(width: 8),
-                                                              Expanded(
-                                                                child: Text(
-                                                                  step,
-                                                                  style: Theme.of(context)
-                                                                      .textTheme
-                                                                      .bodySmall
-                                                                      ?.copyWith(
-                                                                        color: ForgePalette
-                                                                            .textSecondary,
-                                                                      ),
-                                                                ),
-                                                              ),
-                                                            ],
-                                                          ),
-                                                        ),
-                                                      ),
-                                                ],
-                                              ],
+                                            child: SelectableText(
+                                              _messageForDisplay(msg.text),
+                                              style: Theme.of(
+                                                context,
+                                              ).textTheme.bodyMedium,
                                             ),
                                           ),
                                         ),
                                       ),
                                     );
-                                  }
-                                  final msg = messages[index];
-                                  final isUser = msg.role == 'user';
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 12),
-                                    child: Align(
-                                      alignment: isUser
-                                          ? Alignment.centerRight
-                                          : Alignment.centerLeft,
-                                      child: ConstrainedBox(
-                                        constraints: BoxConstraints(
-                                          maxWidth: MediaQuery.of(context).size.width * 0.85,
-                                        ),
-                                        child: ForgePanel(
-                                          backgroundColor: isUser
-                                              ? ForgePalette.glowAccent.withValues(alpha: 0.15)
-                                              : null,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 14,
-                                            vertical: 12,
-                                          ),
-                                          child: SelectableText(
-                                            _messageForDisplay(msg.text),
-                                            style: Theme.of(context).textTheme.bodyMedium,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                      ),
-                      const Divider(height: 1),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
-                        child: Container(
-                          padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
-                          decoration: BoxDecoration(
-                            color: ForgePalette.surfaceElevated.withValues(alpha: 0.55),
-                            borderRadius: BorderRadius.circular(22),
-                            border: Border.all(color: ForgePalette.border),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              if (_pendingMedia.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: SingleChildScrollView(
-                                    scrollDirection: Axis.horizontal,
-                                    child: Row(
-                                      children: _pendingMedia
-                                          .map(
-                                            (m) => Padding(
-                                              padding: const EdgeInsets.only(right: 8),
-                                              child: InputChip(
-                                                avatar: const Icon(Icons.image_rounded, size: 18),
-                                                label: Text(m.fileName),
-                                                onDeleted: () => _removeMedia(m.id),
-                                              ),
-                                            ),
-                                          )
-                                          .toList(),
-                                    ),
-                                  ),
+                                  },
                                 ),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  IconButton(
-                                    tooltip: _isListening ? 'Stop voice note' : 'Voice note',
-                                    onPressed: isBusy ? null : _toggleVoiceInput,
-                                    icon: Icon(
-                                      _isListening
-                                          ? Icons.mic_rounded
-                                          : Icons.mic_none_rounded,
-                                      color: _isListening ? ForgePalette.glowAccent : null,
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: TextField(
-                                      controller: _inputController,
-                                      minLines: 1,
-                                      maxLines: 4,
-                                      decoration: const InputDecoration(
-                                        hintText: 'Message ForgeAI...',
-                                        border: InputBorder.none,
-                                        isCollapsed: true,
-                                        contentPadding: EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 10,
-                                        ),
-                                      ),
-                                      onSubmitted: (_) => _send(state),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  IconButton(
-                                    tooltip: 'Add media',
-                                    onPressed: isBusy ? null : _pickMedia,
-                                    icon: const Icon(Icons.attach_file_rounded),
-                                  ),
-                                  const SizedBox(width: 2),
-                                  IconButton.filled(
-                                    tooltip: state.isPromptLoading ? 'Stop' : 'Send',
-                                    onPressed: state.isPromptLoading
-                                        ? widget.controller.cancelPromptRun
-                                        : (isBusy ? null : () => _send(state)),
-                                    icon: Icon(
-                                      state.isPromptLoading
-                                          ? Icons.stop_rounded
-                                          : (isBusy
-                                              ? Icons.hourglass_top_rounded
-                                              : Icons.send_rounded),
-                                    ),
-                                  ),
-                                ],
+                        ),
+                        const Divider(height: 1),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+                          child: Container(
+                            padding: const EdgeInsets.fromLTRB(8, 6, 6, 6),
+                            decoration: BoxDecoration(
+                              color: ForgePalette.surfaceElevated.withValues(
+                                alpha: 0.55,
                               ),
-                            ],
+                              borderRadius: BorderRadius.circular(22),
+                              border: Border.all(color: ForgePalette.border),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (_showDeployChip &&
+                                    state.selectedRepository != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: ActionChip(
+                                      avatar: const Icon(
+                                        Icons.rocket_launch_rounded,
+                                        size: 18,
+                                        color: ForgePalette.glowAccent,
+                                      ),
+                                      label: const Text(
+                                        'Deploy functions (GitHub)',
+                                      ),
+                                      onPressed: isBusy
+                                          ? null
+                                          : () {
+                                              widget.controller
+                                                  .ensurePromptThreadReady();
+                                              widget.controller
+                                                  .addPromptUserMessage(
+                                                    'Deploy functions',
+                                                  );
+                                              unawaited(
+                                                _runDeployFunctionsViaGit(),
+                                              );
+                                            },
+                                    ),
+                                  ),
+                                if (_pendingMedia.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: SingleChildScrollView(
+                                      scrollDirection: Axis.horizontal,
+                                      child: Row(
+                                        children: _pendingMedia
+                                            .map(
+                                              (m) => Padding(
+                                                padding: const EdgeInsets.only(
+                                                  right: 8,
+                                                ),
+                                                child: InputChip(
+                                                  avatar: const Icon(
+                                                    Icons.image_rounded,
+                                                    size: 18,
+                                                  ),
+                                                  label: Text(m.fileName),
+                                                  onDeleted: () =>
+                                                      _removeMedia(m.id),
+                                                ),
+                                              ),
+                                            )
+                                            .toList(),
+                                      ),
+                                    ),
+                                  ),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    IconButton(
+                                      tooltip: _isListening
+                                          ? 'Stop voice note'
+                                          : 'Voice note',
+                                      onPressed: isBusy
+                                          ? null
+                                          : _toggleVoiceInput,
+                                      icon: Icon(
+                                        _isListening
+                                            ? Icons.mic_rounded
+                                            : Icons.mic_none_rounded,
+                                        color: _isListening
+                                            ? ForgePalette.glowAccent
+                                            : null,
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _inputController,
+                                        minLines: 1,
+                                        maxLines: 4,
+                                        decoration: const InputDecoration(
+                                          hintText:
+                                              'Message $kAppDisplayName...',
+                                          border: InputBorder.none,
+                                          isCollapsed: true,
+                                          contentPadding: EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 10,
+                                          ),
+                                        ),
+                                        onSubmitted: (_) => _send(state),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    IconButton(
+                                      tooltip: 'Add media',
+                                      onPressed: isBusy ? null : _pickMedia,
+                                      icon: const Icon(
+                                        Icons.attach_file_rounded,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Hide keyboard',
+                                      onPressed: _dismissKeyboard,
+                                      icon: const Icon(
+                                        Icons.keyboard_hide_rounded,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 2),
+                                    IconButton.filled(
+                                      tooltip: state.isPromptLoading
+                                          ? 'Stop'
+                                          : 'Send',
+                                      onPressed: state.isPromptLoading
+                                          ? widget.controller.cancelPromptRun
+                                          : (isBusy
+                                                ? null
+                                                : () => _send(state)),
+                                      icon: Icon(
+                                        state.isPromptLoading
+                                            ? Icons.stop_rounded
+                                            : (isBusy
+                                                  ? Icons.hourglass_top_rounded
+                                                  : Icons.send_rounded),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );

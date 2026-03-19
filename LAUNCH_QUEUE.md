@@ -22,10 +22,10 @@ Last updated: 2026-03-18
 - [ ] Set production or beta Firebase Auth providers in the Firebase console: Anonymous, Email/Password, Google, Apple, GitHub.
 - [ ] Add GitHub OAuth App client ID and secret to Firebase Authentication.
 - [ ] Add GitHub service token or app token as `GITHUB_TOKEN` or `GITHUB_APP_TOKEN`.
-- [ ] Add GitLab service token as `GITLAB_TOKEN`.
+- [ ] Add GitHub service token as `GITHUB_TOKEN`.
 - [ ] Add Anthropic and Gemini secrets if those providers are enabled in beta.
 - [ ] Set Firebase managed secrets in the target project before production deploy.
-- [ ] Provide safe smoke-test users and disposable GitHub/GitLab repositories.
+- [ ] Provide safe smoke-test users and disposable GitHub/GitHub repositories.
 
 ## Blocked By Apple / Device / TestFlight
 - [ ] Confirm Apple Developer App ID capability for Sign in with Apple.
@@ -36,7 +36,7 @@ Last updated: 2026-03-18
 
 ## Current Gaps Still Open
 - [ ] In-repo Firebase environment separation is still single-project only (`forgeai-555ee`).
-- [ ] GitLab mobile OAuth is not implemented; beta uses token-based GitLab connection flow.
+- [ ] GitHub mobile OAuth is not implemented; beta uses token-based GitHub connection flow.
 - [ ] iOS simulator build repeatedly stalls inside local `xcodebuild` on this machine and needs a clean rerun outside the hung session.
 
 ## Execution Order

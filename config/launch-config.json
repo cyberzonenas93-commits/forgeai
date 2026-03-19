@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "ForgeAI",
+    "name": "CodeCatalystAI",
     "firebaseProjectId": "forgeai-555ee",
     "bundleId": "com.forgeai.app",
     "androidApplicationId": "com.forgeai.app",
@@ -17,20 +17,12 @@
       "authMode": "firebase-oauth",
       "connectionMode": "personal-access-token-beta"
     },
-    "gitlab": {
-      "label": "GitLab",
-      "baseUrl": "https://gitlab.com/api/v4",
-      "secretNames": ["GITLAB_TOKEN"],
-      "capabilities": ["repository-sync", "branch-management", "merge-requests", "pipeline-trigger"],
-      "authMode": "connection-token-only",
-      "connectionMode": "personal-access-token-beta"
-    },
     "openai": {
       "label": "OpenAI",
       "baseUrl": "https://api.openai.com/v1",
       "secretNames": ["OPENAI_API_KEY"],
       "capabilities": ["ai-suggestions", "diff-generation", "token-estimation"],
-      "defaultModel": "gpt-4.1-mini"
+      "defaultModel": "gpt-5-chat-latest"
     },
     "anthropic": {
       "label": "Anthropic",
@@ -50,11 +42,11 @@
   "requiredProvidersByEnvironment": {
     "local": [],
     "development": ["openai"],
-    "beta": ["github", "gitlab", "openai"],
-    "production": ["github", "gitlab", "openai", "anthropic", "gemini"]
+    "beta": ["github", "openai"],
+    "production": ["github", "openai", "anthropic", "gemini"]
   },
   "tokenEconomics": {
-    "tokenValueUsd": 0.01,
+    "tokenValueUsd": 0.05,
     "actionTokenFloors": {
       "explain_code": 2,
       "fix_bug": 6,
@@ -110,8 +102,7 @@
     "requiredEnv": [
       "SMOKE_TEST_FIREBASE_USER_EMAIL",
       "SMOKE_TEST_FIREBASE_USER_PASSWORD",
-      "SMOKE_TEST_GITHUB_REPO",
-      "SMOKE_TEST_GITLAB_REPO"
+      "SMOKE_TEST_GITHUB_REPO"
     ]
   },
   "release": {

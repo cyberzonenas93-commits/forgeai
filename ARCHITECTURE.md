@@ -1,7 +1,7 @@
 # Architecture
 
 ## System Overview
-ForgeAI is split into a Flutter mobile client and a Firebase backend.
+CodeCatalystAI is split into a Flutter mobile client and a Firebase backend.
 
 ## Client
 - Flutter owns the user experience, navigation, editor shell, diff review, and all approval flows.
@@ -16,7 +16,7 @@ ForgeAI is split into a Flutter mobile client and a Firebase backend.
 
 ## Data Flow
 1. A user authenticates or continues as a guest.
-2. The user connects a GitHub or GitLab repository using a provider slug and access token.
+2. The user connects a GitHub or GitHub repository using a provider slug and access token.
 3. Cloud Functions sync repository metadata and file trees into Firestore.
 4. The workspace controller reads repository, file, wallet, activity, and check streams from Firestore.
 5. AI suggestions create staged change records and token reservations.

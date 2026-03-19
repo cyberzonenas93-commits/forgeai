@@ -6,6 +6,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../../../core/branding/app_branding.dart';
 import '../domain/auth_account.dart';
 import '../domain/auth_failure.dart';
 import '../domain/auth_provider_kind.dart';
@@ -94,8 +95,14 @@ class FirebaseAuthRepository implements AuthRepository {
       }
       final trimmedDisplayName = displayName?.trim();
       if (trimmedDisplayName != null && trimmedDisplayName.isNotEmpty) {
-        await user.updateDisplayName(trimmedDisplayName);
-        await user.reload();
+        try {
+          await user.updateDisplayName(trimmedDisplayName);
+          await user.reload();
+        } catch (e, stack) {
+          // User is already created and signed in; profile sync must not fail signup.
+          debugPrint('auth: signup profile sync failed: $e');
+          debugPrintStack(stackTrace: stack);
+        }
       }
       return _requireAccount(
         _auth.currentUser ?? user,
@@ -313,10 +320,10 @@ class FirebaseAuthRepository implements AuthRepository {
       await callable.call({'provider': 'github', 'accessToken': accessToken});
     } on FirebaseFunctionsException catch (error) {
       debugPrint(
-        'ForgeAI GitHub connection sync failed: ${error.code} ${error.message ?? ''}',
+        '$kAppDisplayName GitHub connection sync failed: ${error.code} ${error.message ?? ''}',
       );
     } catch (error) {
-      debugPrint('ForgeAI GitHub connection sync failed: $error');
+      debugPrint('$kAppDisplayName GitHub connection sync failed: $error');
     }
   }
 
@@ -466,7 +473,7 @@ class FirebaseAuthRepository implements AuthRepository {
       AuthProviderKind.google => 'Google User',
       AuthProviderKind.apple => 'Apple User',
       AuthProviderKind.github => 'GitHub User',
-      AuthProviderKind.emailPassword => 'ForgeAI User',
+      AuthProviderKind.emailPassword => '$kAppDisplayName User',
       AuthProviderKind.guest => 'Guest Session',
     };
   }

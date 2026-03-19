@@ -14,7 +14,7 @@ const mode = modeIndex >= 0 ? process.argv[modeIndex + 1] : 'backend';
 const context = collectLaunchContext();
 const summary = summarizeValidation(context);
 
-console.log(`ForgeAI smoke runner (${mode})`);
+console.log(`CodeCatalystAI smoke runner (${mode})`);
 
 if (summary.errors.length > 0) {
   printList('Blocking errors', summary.errors);
@@ -36,22 +36,12 @@ if (mode === 'backend') {
   if (!context.smoke.githubRepo) {
     smokeWarnings.push('Missing SMOKE_TEST_GITHUB_REPO.');
   }
-  if (!context.smoke.gitlabRepo) {
-    smokeWarnings.push('Missing SMOKE_TEST_GITLAB_REPO.');
-  }
   if (
     context.smoke.githubBranchPrefix === 'main' ||
     context.smoke.githubBranchPrefix === 'master' ||
     !context.smoke.githubBranchPrefix.endsWith('/')
   ) {
     smokeWarnings.push('GitHub smoke branch prefix is unsafe.');
-  }
-  if (
-    context.smoke.gitlabBranchPrefix === 'main' ||
-    context.smoke.gitlabBranchPrefix === 'master' ||
-    !context.smoke.gitlabBranchPrefix.endsWith('/')
-  ) {
-    smokeWarnings.push('GitLab smoke branch prefix is unsafe.');
   }
 
   printList('Smoke warnings', smokeWarnings);

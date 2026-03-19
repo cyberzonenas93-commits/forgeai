@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/branding/app_branding.dart';
 import '../../../core/theme/forge_palette.dart';
 import '../../../core/widgets/forge_ui.dart';
+
+const _splashFadeDuration = Duration(milliseconds: 300);
+const _splashPulseDuration = Duration(milliseconds: 520);
+const _splashHoldDuration = Duration(milliseconds: 1300);
+const _splashTransitionDuration = Duration(milliseconds: 400);
 
 class ForgeSplashScreen extends StatefulWidget {
   const ForgeSplashScreen({super.key, required this.child});
@@ -16,11 +22,11 @@ class _ForgeSplashScreenState extends State<ForgeSplashScreen>
     with TickerProviderStateMixin {
   late final AnimationController _fadeController = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 300),
+    duration: _splashFadeDuration,
   )..forward();
   late final AnimationController _pulseController = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 520),
+    duration: _splashPulseDuration,
   );
 
   bool _showChild = false;
@@ -36,6 +42,7 @@ class _ForgeSplashScreenState extends State<ForgeSplashScreen>
     await _pulseController.reverse();
     await _pulseController.forward();
     await _pulseController.reverse();
+    await Future<void>.delayed(_splashHoldDuration);
     if (!mounted) {
       return;
     }
@@ -52,7 +59,7 @@ class _ForgeSplashScreenState extends State<ForgeSplashScreen>
   @override
   Widget build(BuildContext context) {
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 400),
+      duration: _splashTransitionDuration,
       switchInCurve: Curves.easeOutCubic,
       switchOutCurve: Curves.easeInCubic,
       child: _showChild
@@ -85,6 +92,8 @@ class _SplashStage extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: ForgeScreen(
+        // Full-bleed gradient behind the mark (no extra bottom/top inset).
+        padding: EdgeInsets.zero,
         child: Center(
           child: FadeTransition(
             opacity: fade,
@@ -93,28 +102,21 @@ class _SplashStage extends StatelessWidget {
               child: AnimatedBuilder(
                 animation: pulseController,
                 builder: (context, child) {
-                  final glow = 24 + (pulseController.value * 14);
+                  // Soft pulse only — no rounded shadow plate behind the asset.
+                  final pulse = 1 + (pulseController.value * 0.04);
                   return Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(30),
-                          boxShadow: [
-                            BoxShadow(
-                              color: ForgePalette.glowAccent.withValues(
-                                alpha: 0.10 + (pulseController.value * 0.14),
-                              ),
-                              blurRadius: glow,
-                              spreadRadius: -10,
-                            ),
-                          ],
+                      Transform.scale(
+                        scale: pulse,
+                        child: const ForgeBrandMark(
+                          size: 132,
+                          blendWithBackground: true,
                         ),
-                        child: const ForgeBrandMark(size: 132),
                       ),
                       const SizedBox(height: 22),
                       Text(
-                        'ForgeAI',
+                        kAppDisplayName,
                         style: Theme.of(context).textTheme.headlineLarge,
                       ),
                       const SizedBox(height: 8),

@@ -27,7 +27,7 @@
 - `ANTHROPIC_API_KEY`
 - `GEMINI_API_KEY`
 - `GITHUB_TOKEN` or `GITHUB_APP_TOKEN`
-- `GITLAB_TOKEN`
+- `GITHUB_TOKEN`
 
 ## Firebase Authentication
 
@@ -65,17 +65,17 @@
 
 ## Checks / CI workflow
 - **GitHub**: The app discovers workflows via the Actions API and triggers one (by name/path match for tests, lint, build). Repos need at least one **active** workflow under `.github/workflows/` with `workflow_dispatch:` enabled. Works with any workflow filename (e.g. `ci.yml`, `test.yml`, `lint.yml`).
-- **GitLab**: The app triggers a pipeline on the default branch; no workflow list is used.
+- **GitHub**: The app triggers a pipeline on the default branch; no workflow list is used.
 - If GitHub returns no workflows, the app shows: "No workflows found. Add a workflow with workflow_dispatch in .github/workflows/ (e.g. ci.yml)."
 
-## GitLab Service Token
-- Variable: `GITLAB_TOKEN`
+## GitHub Service Token
+- Variable: `GITHUB_TOKEN`
 - Current beta connection mode is personal access token, not mobile OAuth
 - Minimum scopes: `api`, `read_repository`, `write_repository`
 
 ## OpenAI
 - Variable: `OPENAI_API_KEY`
-- Default model: `gpt-4.1-mini`
+- Default model: `gpt-5-chat-latest` (OpenAI alias that follows the latest ChatGPT GPT-5 snapshot; pin `OPENAI_MODEL` to a dated snapshot if you need stability)
 
 ## Anthropic
 - Variable: `ANTHROPIC_API_KEY`
@@ -94,7 +94,7 @@
 ```bash
 firebase functions:secrets:set OPENAI_API_KEY
 firebase functions:secrets:set GITHUB_TOKEN
-firebase functions:secrets:set GITLAB_TOKEN
+firebase functions:secrets:set GITHUB_TOKEN
 firebase functions:secrets:set ANTHROPIC_API_KEY
 firebase functions:secrets:set GEMINI_API_KEY
 ```

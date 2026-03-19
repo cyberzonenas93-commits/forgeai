@@ -1,9 +1,16 @@
 import { initializeApp } from 'firebase-admin/app';
-import { FieldValue, getFirestore, type DocumentData } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
+import {
+  FieldValue,
+  getFirestore,
+  Timestamp,
+  type DocumentData,
+} from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
 import * as functions from 'firebase-functions/v1';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import type { CallableOptions, CallableRequest } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 
 import {
   AI_PROVIDER_NAMES,
@@ -18,7 +25,11 @@ import {
 import {
   getModelForTierAndProvider,
   getTierForAction,
+  OPENAI_LATEST_CHAT_MODEL,
   PLANS,
+  TOP_UP_PACKS,
+  type PlanId,
+  type TopUpPackId,
 } from './economics-config';
 import {
   BILLABLE_ACTION_TYPES,
@@ -36,7 +47,7 @@ const db = getFirestore();
 const messaging = getMessaging();
 type ChangeKind = 'manual' | 'ai';
 type GitMergeMethod = 'merge' | 'squash' | 'rebase';
-type GitProviderName = Extract<ProviderName, 'github' | 'gitlab'>;
+type GitProviderName = Extract<ProviderName, 'github' | 'github'>;
 type NotificationCategory =
   | 'checks'
   | 'git'
@@ -70,6 +81,7 @@ const BASE_CALLABLE_OPTIONS: CallableOptions = {
 };
 const GIT_CALLABLE_OPTIONS: CallableOptions = {
   ...BASE_CALLABLE_OPTIONS,
+  secrets: ['GITHUB_TOKEN'],
 };
 const AI_CALLABLE_OPTIONS: CallableOptions = {
   ...BASE_CALLABLE_OPTIONS,
@@ -77,7 +89,11 @@ const AI_CALLABLE_OPTIONS: CallableOptions = {
 };
 const GIT_AND_AI_CALLABLE_OPTIONS: CallableOptions = {
   ...BASE_CALLABLE_OPTIONS,
-  secrets: ['OPENAI_API_KEY'],
+  secrets: ['OPENAI_API_KEY', 'GITHUB_TOKEN'],
+};
+const IAP_CALLABLE_OPTIONS: CallableOptions = {
+  ...BASE_CALLABLE_OPTIONS,
+  secrets: ['APPLE_IAP_SHARED_SECRET'],
 };
 const DEFAULT_NOTIFICATION_PREFERENCES = {
   enabled: true,
@@ -91,6 +107,42 @@ const DEFAULT_NOTIFICATION_PREFERENCES = {
   digest: true,
 } as const;
 
+/** File text sent to suggestChange; GPT-5 Chat (latest alias) supports large contexts. */
+const AI_SUGGESTION_BASE_CONTENT_MAX_CHARS = 200_000;
+/** Max completion tokens for suggestChange (provider caps applied below). */
+const AI_SUGGESTION_MAX_OUTPUT_TOKENS = 32_768;
+
+function suggestionMaxOutputTokens(provider: AiProviderName): number {
+  if (provider === 'anthropic') {
+    return Math.min(AI_SUGGESTION_MAX_OUTPUT_TOKENS, 8192);
+  }
+  return AI_SUGGESTION_MAX_OUTPUT_TOKENS;
+}
+
+/** GPT-5.x Chat Completions use max_completion_tokens; omit fixed temperature. */
+function buildOpenAiChatCompletionJsonBody(params: {
+  model: string;
+  messages: unknown[];
+  temperature: number;
+  maxOutput: number;
+  responseFormat?: { type: 'json_object' };
+}): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    model: params.model,
+    messages: params.messages,
+  };
+  if (params.responseFormat) {
+    body.response_format = params.responseFormat;
+  }
+  if (params.model.startsWith('gpt-5')) {
+    body.max_completion_tokens = params.maxOutput;
+  } else {
+    body.temperature = params.temperature;
+    body.max_tokens = params.maxOutput;
+  }
+  return body;
+}
+
 interface SendPushNotificationInput {
   ownerId: string;
   category: NotificationCategory;
@@ -103,8 +155,112 @@ interface SendPushNotificationInput {
   changeRequestId?: string | null;
 }
 
-function isUnlimitedTestWalletEnabled() {
-  return runtimeSettings.appEnv !== 'production';
+/** App Store reviewer demo account: full token access; auto-deleted ~30 days after Auth creation. */
+const APP_STORE_REVIEWER_TEST_EMAIL = 'test@codecatalystai.com';
+const APP_STORE_REVIEWER_TEST_MAX_AGE_MS = 30 * 86400_000;
+
+/**
+ * Emails that receive unlimited token usage server-side. All others use paywall/subscription.
+ * Keep this list small; `APP_STORE_REVIEWER_TEST_EMAIL` is purged on a schedule after 30 days.
+ */
+const UNLIMITED_USER_EMAILS = new Set(
+  ['cyberzonenas93@gmail.com', APP_STORE_REVIEWER_TEST_EMAIL].map(email =>
+    email.trim().toLowerCase(),
+  ),
+);
+
+function isUnlimitedUser(email: string | null | undefined): boolean {
+  const normalized = email?.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return UNLIMITED_USER_EMAILS.has(normalized);
+}
+
+/** GitHub/OAuth often leave [user.email] empty; providerData may still include the address. */
+function resolveAuthUserEmails(user: {
+  email?: string | null;
+  providerData?: { email?: string | null }[];
+}): string[] {
+  const emails = new Set<string>();
+  const direct = user.email?.trim();
+  if (direct) {
+    emails.add(direct);
+  }
+  for (const p of user.providerData ?? []) {
+    const fromProvider = p.email?.trim();
+    if (fromProvider) {
+      emails.add(fromProvider);
+    }
+  }
+  return [...emails];
+}
+
+/** GitHub/OAuth often leave [user.email] empty; providerData may still include the address. */
+function resolveAuthUserEmail(user: {
+  email?: string | null;
+  providerData?: { email?: string | null }[];
+}): string | null {
+  return resolveAuthUserEmails(user)[0] ?? null;
+}
+
+async function getOwnerEmail(ownerId: string): Promise<string | null> {
+  const userRef = db.collection('users').doc(ownerId);
+  const userSnap = await userRef.get();
+  const existing = userSnap.data()?.email;
+  if (typeof existing === 'string' && existing.trim().length > 0) {
+    return existing.trim();
+  }
+  try {
+    const record = await getAuth().getUser(ownerId);
+    const resolved = resolveAuthUserEmail(record);
+    if (resolved) {
+      await userRef.set(
+        { email: resolved, updatedAt: FieldValue.serverTimestamp() },
+        { merge: true },
+      );
+      return resolved;
+    }
+  } catch {
+    // User missing in Auth, etc.
+  }
+  return null;
+}
+
+async function isUnlimitedOwner(ownerId: string): Promise<boolean> {
+  const userRef = db.collection('users').doc(ownerId);
+  const userSnap = await userRef.get();
+  const data = userSnap.data();
+  if (data?.unlimited === true) {
+    return true;
+  }
+  const existing = data?.email;
+  if (typeof existing === 'string' && isUnlimitedUser(existing)) {
+    await userRef.set({ unlimited: true, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    return true;
+  }
+  try {
+    const record = await getAuth().getUser(ownerId);
+    const authEmails = resolveAuthUserEmails(record);
+    if (authEmails.some(isUnlimitedUser)) {
+      const preferredEmail = authEmails.find(isUnlimitedUser) ?? authEmails[0] ?? null;
+      const patch: Record<string, unknown> = {
+        unlimited: true,
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      if (preferredEmail) {
+        patch.email = preferredEmail;
+      }
+      await userRef.set(
+        patch,
+        { merge: true },
+      );
+      return true;
+    }
+  } catch {
+    // User missing in Auth, etc.
+  }
+  return false;
 }
 
 async function notificationPreferencesForUser(ownerId: string) {
@@ -231,7 +387,7 @@ async function maybeSendLowBalanceNotification(ownerId: string) {
     category: 'wallet',
     type: 'wallet_alert',
     title: 'Token balance running low',
-    body: `${Math.max(0, Math.floor(balance))} tokens remain in your ForgeAI wallet.`,
+    body: `${Math.max(0, Math.floor(balance))} tokens remain in your CodeCatalystAI wallet.`,
     destination: 'wallet',
   });
 }
@@ -255,13 +411,13 @@ interface ProviderConnectionSyncData {
 }
 
 interface ProviderRepositoryListData {
-  provider?: 'github' | 'gitlab';
+  provider?: 'github' | 'github';
   query?: string;
   apiBaseUrl?: string;
 }
 
 interface RepositoryConnectionData {
-  provider: 'github' | 'gitlab';
+  provider: 'github' | 'github';
   repository: string;
   defaultBranch?: string;
   description?: string;
@@ -275,7 +431,7 @@ interface RepositoryConnectionData {
 
 interface RepositorySyncData {
   repoId?: string;
-  provider?: 'github' | 'gitlab';
+  provider?: 'github' | 'github';
   owner?: string;
   name?: string;
   forceRefresh?: boolean;
@@ -311,7 +467,7 @@ interface GitFileChange {
 
 interface GitActionData {
   repoId: string;
-  provider: 'github' | 'gitlab';
+  provider: 'github' | 'github';
   actionType: GitActionType;
   branchName?: string;
   sourceBranch?: string;
@@ -328,7 +484,7 @@ interface GitActionData {
 
 interface CheckActionData {
   repoId: string;
-  provider: 'github' | 'gitlab';
+  provider: 'github' | 'github';
   actionType: CheckActionType;
   workflowName: string;
   ref?: string;
@@ -359,7 +515,7 @@ interface ProviderConfigSnapshot {
 
 interface RemoteRepositorySnapshot {
   remoteId: string | number | null;
-  provider: 'github' | 'gitlab';
+  provider: 'github' | 'github';
   owner: string;
   name: string;
   fullName: string;
@@ -482,7 +638,7 @@ function safeDocId(value: string) {
   return encodeURIComponent(value).replace(/\./g, '%2E');
 }
 
-function makeRepositoryId(provider: 'github' | 'gitlab', owner: string, name: string) {
+function makeRepositoryId(provider: 'github' | 'github', owner: string, name: string) {
   return [provider, owner, name].map(safeDocId).join('__');
 }
 
@@ -724,78 +880,242 @@ async function listGitHubRepositories(
     .sort((left, right) => left.fullName.localeCompare(right.fullName));
 }
 
-async function listGitLabRepositories(
-  token: string,
-  query?: string,
-  apiBaseUrl?: string,
-): Promise<ProviderRepositoryListItem[]> {
-  const baseUrl = resolveApiBaseUrl('gitlab', apiBaseUrl);
-  const headers = buildGitLabHeaders(token);
-  const allProjects: Array<{
-    path?: string | null;
-    path_with_namespace?: string | null;
-    default_branch?: string | null;
-    description?: string | null;
-    web_url?: string | null;
-    visibility?: string | null;
-    namespace?: { path?: string | null } | null;
-  }> = [];
-  for (let page = 1; page <= MAX_REPOS_PAGES; page++) {
-    const projects = await fetchJson<
-      Array<{
-        path?: string | null;
-        path_with_namespace?: string | null;
-        default_branch?: string | null;
-        description?: string | null;
-        web_url?: string | null;
-        visibility?: string | null;
-        namespace?: { path?: string | null } | null;
-      }>
-    >(
-      `${baseUrl}/projects?membership=true&simple=true&per_page=${REPOS_PAGE_SIZE}&page=${page}&order_by=last_activity_at&sort=desc`,
-      { headers },
+function normalizeRepoSlugInput(value: string) {
+  const slug = normalizeText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 100);
+  if (!slug || slug.startsWith('.') || slug.startsWith('-')) {
+    throw new HttpsError(
+      'invalid-argument',
+      'Repository name must be a short slug (letters, numbers, dots, hyphens).',
     );
-    allProjects.push(...projects);
-    if (projects.length < REPOS_PAGE_SIZE) {
-      break;
-    }
   }
+  return slug;
+}
 
-  const normalizedQuery = normalizeText(query ?? '').toLowerCase();
-  const items: ProviderRepositoryListItem[] = [];
-  for (const project of allProjects) {
-    const fullName = project.path_with_namespace?.trim() ?? '';
-    const [owner = '', name = ''] = fullName.split('/');
+function asOptionalNamespace(value: unknown): string | null {
+  const s = typeof value === 'string' ? value.trim() : '';
+  if (!s) {
+    return null;
+  }
+  if (!/^[a-zA-Z0-9][-a-zA-Z0-9]*$/.test(s)) {
+    throw new HttpsError('invalid-argument', 'Organization or namespace name is invalid.');
+  }
+  return s;
+}
+
+async function createRemoteEmptyRepository(
+  provider: 'github' | 'github',
+  token: string,
+  options: {
+    name: string;
+    description: string;
+    isPrivate: boolean;
+    githubOrg?: string | null;
+    apiBaseUrl?: string;
+  },
+): Promise<{
+  owner: string;
+  name: string;
+  fullName: string;
+  htmlUrl: string | null;
+  defaultBranch: string;
+  remoteId: number;
+}> {
+  if (provider === 'github') {
+    const baseUrl = resolveApiBaseUrl('github', options.apiBaseUrl);
+    const endpoint = options.githubOrg
+      ? `${baseUrl}/orgs/${encodeURIComponent(options.githubOrg)}/repos`
+      : `${baseUrl}/user/repos`;
+    const created = await fetchJson<{
+      id?: number;
+      name?: string;
+      full_name?: string;
+      owner?: { login?: string | null };
+      html_url?: string | null;
+      default_branch?: string | null;
+    }>(endpoint, {
+      method: 'POST',
+      headers: buildGitHubHeaders(token),
+      body: JSON.stringify({
+        name: options.name,
+        description: truncate(options.description, 350),
+        private: options.isPrivate,
+        auto_init: false,
+      }),
+    });
+    const owner = created.owner?.login?.trim() ?? '';
+    const name = created.name?.trim() ?? options.name;
+    const fullName = created.full_name?.trim() ?? `${owner}/${name}`;
     if (!owner || !name) {
-      continue;
+      throw new HttpsError('internal', 'GitHub returned an incomplete repository payload.');
     }
-    items.push({
-      provider: 'gitlab',
+    return {
       owner,
       name,
       fullName,
-      defaultBranch: project.default_branch?.trim() || 'main',
-      description: project.description?.trim() || null,
-      htmlUrl: project.web_url?.trim() || null,
-      isPrivate: (project.visibility ?? '').toLowerCase() !== 'public',
-    });
+      htmlUrl: created.html_url ?? null,
+      defaultBranch: created.default_branch?.trim() || 'main',
+      remoteId: Number(created.id ?? 0) || 0,
+    };
   }
-  return items
-    .filter(repository => {
-      if (!normalizedQuery) {
-        return true;
-      }
-      return [
-        repository.fullName,
-        repository.name,
-        repository.owner,
-        repository.description ?? '',
-      ]
-        .join(' ')
-        .toLowerCase()
-        .includes(normalizedQuery);
-    })
-    .sort((left, right) => left.fullName.localeCompare(right.fullName));
+
+  const baseUrl = resolveApiBaseUrl('github', options.apiBaseUrl);
+  const displayName = options.name.replace(/[-_.]+/g, ' ').trim() || options.name;
+  const created = await fetchJson<{
+    id?: number;
+    path_with_namespace?: string | null;
+    web_url?: string | null;
+    default_branch?: string | null;
+  }>(`${baseUrl}/projects`, {
+    method: 'POST',
+    headers: buildGitHubHeaders(token),
+    body: JSON.stringify({
+      name: displayName,
+      path: options.name,
+      description: truncate(options.description, 500),
+      visibility: options.isPrivate ? 'private' : 'public',
+      initialize_with_readme: false,
+    }),
+  });
+  const fullName = created.path_with_namespace?.trim() ?? '';
+  const segments = fullName.split('/');
+  const name = segments.length >= 1 ? segments[segments.length - 1]! : options.name;
+  const owner = segments.length >= 2 ? segments.slice(0, -1).join('/') : '';
+  if (!owner || !name) {
+    throw new HttpsError('internal', 'GitHub returned an incomplete project payload.');
+  }
+  return {
+    owner,
+    name,
+    fullName,
+    htmlUrl: created.web_url ?? null,
+    defaultBranch: created.default_branch?.trim() || 'main',
+    remoteId: Number(created.id ?? 0) || 0,
+  };
+}
+
+function sanitizeScaffoldFileEntries(raw: unknown): Array<{ path: string; content: string }> {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: Array<{ path: string; content: string }> = [];
+  let total = 0;
+  for (const item of raw.slice(0, 12)) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    const rec = item as Record<string, unknown>;
+    const path = typeof rec.path === 'string' ? rec.path.trim().replace(/^\/+/u, '') : '';
+    const content = typeof rec.content === 'string' ? rec.content : '';
+    if (!path || path.includes('..') || path.startsWith('/')) {
+      continue;
+    }
+    if (!/^[\w./+@-]+$/u.test(path)) {
+      continue;
+    }
+    if (content.length > 100_000) {
+      continue;
+    }
+    if (total + content.length > 400_000) {
+      break;
+    }
+    total += content.length;
+    out.push({ path, content });
+  }
+  return out;
+}
+
+async function generateProjectScaffoldPlan(
+  idea: string,
+  repoSlug: string,
+  stackHint?: string,
+): Promise<{
+  description: string;
+  files: Array<{ path: string; content: string }>;
+}> {
+  const tokenInfo = lookupProviderToken('openai');
+  if (!tokenInfo) {
+    throw new HttpsError('failed-precondition', 'OpenAI is not configured for this environment.');
+  }
+  const tier = getTierForAction('ai_project_scaffold');
+  const model = getModelForTierAndProvider(tier, 'openai');
+  const systemPrompt = `You help users bootstrap a brand-new codebase. Return ONLY valid JSON with shape:
+{"description":"one-line repo description for Git hosting","files":[{"path":"relative/path.ext","content":"full file text"}]}
+Rules:
+- Include 3 to 10 files: at least README.md and sensible entry files for the stack (e.g. main.dart, package.json, etc.) when applicable.
+- Paths use forward slashes, no leading slash, no ".." segments.
+- Content must be real, compilable or runnable starter code when possible—not placeholders like "TODO" only.
+- Keep total output reasonably small for a mobile app (avoid huge assets or long prose).
+- If the user names a stack in stackHint, follow it. Otherwise pick a sensible default (e.g. Flutter for mobile, Node for a small API).
+- Escape JSON strings properly (newlines as \\n inside JSON).`;
+  const userPrompt = JSON.stringify({
+    repoSlug,
+    userIdea: truncate(idea, 4000),
+    stackHint: stackHint ? truncate(stackHint, 400) : null,
+  });
+
+  const response = await fetchJson<{ choices: Array<{ message?: { content?: string | null } }> }>(
+    `${providerBaseUrl('openai')}/chat/completions`,
+    {
+      method: 'POST',
+      headers: buildOpenAiHeaders(tokenInfo.token),
+      body: JSON.stringify(
+        buildOpenAiChatCompletionJsonBody({
+          model,
+          temperature: 0.35,
+          maxOutput: 8192,
+          responseFormat: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+        }),
+      ),
+    },
+  );
+
+  const rawText = response.choices?.[0]?.message?.content?.trim() ?? '{}';
+  let parsed: { description?: unknown; files?: unknown };
+  try {
+    parsed = JSON.parse(rawText) as { description?: unknown; files?: unknown };
+  } catch {
+    throw new HttpsError('internal', 'AI returned invalid JSON for the project scaffold.');
+  }
+  const description =
+    typeof parsed.description === 'string' ? parsed.description.trim().slice(0, 350) : '';
+  let files = sanitizeScaffoldFileEntries(parsed.files);
+  const readmeFallback = `# ${repoSlug}
+
+${truncate(idea, 2000)}
+
+Generated with CodeCatalystAI.
+`;
+  if (files.length === 0) {
+    files = [
+      { path: 'README.md', content: readmeFallback },
+      { path: '.gitignore', content: '# OS\n.DS_Store\n' },
+    ];
+  } else if (!files.some(f => f.path.toLowerCase() === 'readme.md')) {
+    files = [{ path: 'README.md', content: readmeFallback }, ...files];
+  }
+  return {
+    description: description || truncate(normalizeText(idea), 200) || `New project ${repoSlug}`,
+    files,
+  };
+}
+
+interface CreateProjectRepositoryData {
+  provider?: 'github' | 'github';
+  repoName?: string;
+  idea?: string;
+  stackHint?: string;
+  isPrivate?: boolean;
+  namespace?: string;
+  accessToken?: string;
+  apiBaseUrl?: string;
 }
 
 async function persistUserProviderToken(
@@ -840,17 +1160,6 @@ async function persistUserProviderToken(
 }
 
 function walletDefaults(): WalletState {
-  if (isUnlimitedTestWalletEnabled()) {
-    return {
-      balance: TEST_WALLET_BALANCE,
-      reserved: 0,
-      monthlyLimit: 0,
-      monthlyUsed: 0,
-      currency: 'tokens',
-      planName: 'Test Unlimited',
-      dailyActionCap: 9999,
-    };
-  }
   const freePlan = PLANS.free;
   return {
     balance: 0,
@@ -869,7 +1178,7 @@ function normalizeWalletState(data: DocumentData | undefined): WalletState {
     return defaults;
   }
   const dailyCap = Number(data.dailyActionCap ?? defaults.dailyActionCap);
-  const normalized = {
+  return {
     balance: Number(data.balance ?? defaults.balance),
     reserved: Number(data.reserved ?? defaults.reserved),
     monthlyLimit: Number(data.monthlyLimit ?? defaults.monthlyLimit),
@@ -878,19 +1187,6 @@ function normalizeWalletState(data: DocumentData | undefined): WalletState {
     planName: typeof data.planName === 'string' ? data.planName : defaults.planName,
     dailyActionCap: dailyCap > 0 ? dailyCap : defaults.dailyActionCap,
   };
-  if (isUnlimitedTestWalletEnabled()) {
-    return {
-      ...normalized,
-      balance: Math.max(normalized.balance, TEST_WALLET_BALANCE),
-      reserved: 0,
-      monthlyLimit: 0,
-      monthlyUsed: 0,
-      currency: 'tokens',
-      planName: 'Test Unlimited',
-      dailyActionCap: 9999,
-    };
-  }
-  return normalized;
 }
 
 function unlimitedWalletDocument() {
@@ -914,8 +1210,8 @@ function providerBaseUrl(provider: ProviderName) {
   switch (provider) {
     case 'github':
       return 'https://api.github.com';
-    case 'gitlab':
-      return 'https://gitlab.com/api/v4';
+    case 'github':
+      return 'https://github.com/api/v4';
     case 'openai':
       return 'https://api.openai.com/v1';
     case 'anthropic':
@@ -937,8 +1233,8 @@ function providerLabel(provider: ProviderName) {
   switch (provider) {
     case 'github':
       return 'GitHub';
-    case 'gitlab':
-      return 'GitLab';
+    case 'github':
+      return 'GitHub';
     case 'openai':
       return 'OpenAI';
     case 'anthropic':
@@ -952,7 +1248,7 @@ function providerCapabilities(provider: ProviderName) {
   switch (provider) {
     case 'github':
       return ['repository-sync', 'branch-management', 'pull-requests', 'workflow-dispatch'];
-    case 'gitlab':
+    case 'github':
       return ['repository-sync', 'branch-management', 'merge-requests', 'pipeline-trigger'];
     case 'openai':
     case 'anthropic':
@@ -964,7 +1260,7 @@ function providerCapabilities(provider: ProviderName) {
 function defaultModelFor(provider: ProviderName) {
   switch (provider) {
     case 'openai':
-      return 'gpt-5.4';
+      return OPENAI_LATEST_CHAT_MODEL;
     case 'anthropic':
       return process.env.ANTHROPIC_MODEL ?? 'claude-3-5-sonnet-latest';
     case 'gemini':
@@ -1114,7 +1410,7 @@ async function updateWalletState(
   usage?: Parameters<typeof logWalletUsage>[1],
 ) {
   const walletRef = db.collection('wallets').doc(ownerId);
-  if (isUnlimitedTestWalletEnabled()) {
+  if (await isUnlimitedOwner(ownerId)) {
     await walletRef.set(unlimitedWalletDocument(), { merge: true });
     if (usage) {
       await logWalletUsage(ownerId, usage);
@@ -1223,6 +1519,32 @@ async function reserveWalletTokens(
   actionType: BillableActionType,
   reason?: string,
 ) {
+  if (await isUnlimitedOwner(ownerId)) {
+    const pricing = buildUsagePricingSnapshot(actionType, provider, costPreview);
+    await updateWalletState(
+      ownerId,
+      state => state,
+      {
+        repoId,
+        actionType,
+        amount,
+        provider,
+        costPreview,
+        status: 'reserved',
+        reason,
+        estimatedProviderCostUsd: pricing?.estimatedProviderCostUsd ?? null,
+        actualProviderCostUsd: null,
+        estimatedMarginUsd: pricing?.estimatedMarginUsd ?? null,
+        refundPolicy: pricing?.refundPolicy ?? null,
+        dailyCap: pricing?.dailyCap ?? null,
+        pricingVersion: pricing?.pricingVersion ?? null,
+        model: pricing?.assumedModel ?? null,
+        latencyMs: null,
+      },
+    );
+    return;
+  }
+
   const walletRef = db.collection('wallets').doc(ownerId);
   const walletSnap = await walletRef.get();
   const state = normalizeWalletState(walletSnap.data());
@@ -1427,15 +1749,7 @@ function buildGitHubHeaders(token: string) {
     Accept: 'application/vnd.github+json',
     Authorization: `Bearer ${token}`,
     'X-GitHub-Api-Version': '2022-11-28',
-    'User-Agent': 'ForgeAI',
-    'Content-Type': 'application/json',
-  };
-}
-
-function buildGitLabHeaders(token: string) {
-  return {
-    Accept: 'application/json',
-    'PRIVATE-TOKEN': token,
+    'User-Agent': 'CodeCatalystAI',
     'Content-Type': 'application/json',
   };
 }
@@ -1620,7 +1934,7 @@ function toAiSuggestionDraft(
     providerUsed,
     model,
     summary: summaryLine || `AI suggestion for ${fallbackContext.filePath}`,
-    rationale: `The provider returned non-JSON output, so ForgeAI preserved it as a reviewable draft.`,
+    rationale: `The provider returned non-JSON output, so CodeCatalystAI preserved it as a reviewable draft.`,
     afterContent: fallbackContext.baseContent ?? '',
     diffPreview: truncate(
       buildUnifiedDiff(
@@ -1648,7 +1962,7 @@ function buildFallbackDraft(fallbackContext: {
     providerUsed: 'openai' as const,
     model: null,
     summary: `Drafted mobile-safe change for ${fallbackContext.filePath}`,
-    rationale: `ForgeAI could not reach an AI provider, so it created a conservative draft from the user prompt.`,
+    rationale: `CodeCatalystAI could not reach an AI provider, so it created a conservative draft from the user prompt.`,
     afterContent: fallbackContext.baseContent ?? '',
     diffPreview: buildUnifiedDiff(
       fallbackContext.filePath,
@@ -1679,29 +1993,35 @@ async function callAiProvider(
 
   const model = modelOverride ?? defaultModelFor(provider);
   const systemPrompt =
-    'You are ForgeAI, a mobile-first code assistant that edits code based on plain-language instructions. The user will describe what they want in free-form English (e.g. "add error handling here", "rename this to fetchUser", "make this function async"). Interpret their intent and produce the edited file. Return only valid JSON with keys summary, rationale, modifiedContent, diffPreview, riskNotes, suggestedCommitMessage, and estimatedTokens. modifiedContent must contain the full edited file content. Keep the change reviewable, minimal, and safe.';
+    'You are CodeCatalystAI, a mobile-first code assistant. The user describes changes in everyday language. You have full authority to edit this path: apply their request completely—rewrite the whole file, refactor structure, add or remove large sections, or replace the entire contents when that is what they want. If baseContent is missing or empty, treat the file as new and return the complete file text they asked for. Return only valid JSON with keys summary, rationale, modifiedContent, diffPreview, riskNotes, suggestedCommitMessage, and estimatedTokens. modifiedContent must always be the full file after your edits (never a fragment or patch-only body). For summary, rationale, and riskNotes: write like a helpful teammate—short, natural sentences in plain English. Do not use log-style labels (e.g. "Summary:", "INFO:", "Output:"), bullet dumps, or stiff technical report tone. suggestedCommitMessage should read like a normal human git message, not a machine tag. Mention any risky or destructive edits briefly in riskNotes.';
   const userPrompt = JSON.stringify({
     repoFullName: context.repoFullName,
     filePath: context.filePath,
     prompt,
-    baseContent: truncate(context.baseContent ?? '', 5000),
+    baseContent: truncate(context.baseContent ?? '', AI_SUGGESTION_BASE_CONTENT_MAX_CHARS),
   });
 
+  const maxOut = suggestionMaxOutputTokens(provider);
+
   if (provider === 'openai') {
+    const openaiModel = model ?? OPENAI_LATEST_CHAT_MODEL;
     const response = await fetchJson<{ choices: Array<{ message?: { content?: string | null } }> }>(
       `${providerBaseUrl(provider)}/chat/completions`,
       {
         method: 'POST',
         headers: buildOpenAiHeaders(tokenInfo.token),
-        body: JSON.stringify({
-          model,
-          temperature: 0.2,
-          response_format: { type: 'json_object' },
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt },
-          ],
-        }),
+        body: JSON.stringify(
+          buildOpenAiChatCompletionJsonBody({
+            model: openaiModel,
+            temperature: 0.2,
+            maxOutput: maxOut,
+            responseFormat: { type: 'json_object' },
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt },
+            ],
+          }),
+        ),
       },
     );
 
@@ -1716,7 +2036,7 @@ async function callAiProvider(
       headers: buildAnthropicHeaders(tokenInfo.token),
       body: JSON.stringify({
         model,
-        max_tokens: 1200,
+        max_tokens: maxOut,
         temperature: 0.2,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
@@ -1749,6 +2069,7 @@ async function callAiProvider(
         ],
         generationConfig: {
           temperature: 0.2,
+          maxOutputTokens: maxOut,
           responseMimeType: 'application/json',
         },
       }),
@@ -1765,7 +2086,7 @@ async function runSubAgent(
   task: string,
   sharedContext: string,
 ): Promise<string> {
-  const subSystemPrompt = `You are a specialized sub-agent recruited by ForgeAI. Your role: ${role || 'assistant'}. Shared context (repos/files): ${truncate(sharedContext, 1500)}. Complete the task below and respond with only the result. Be concise and actionable.`;
+  const subSystemPrompt = `You are helping CodeCatalystAI as: ${role || 'assistant'}. Context (repos/files): ${truncate(sharedContext, 1500)}. Answer the task in plain, conversational English—like explaining to a colleague. No log prefixes, no fake "DEBUG/INFO" lines, no dense numbered pipelines unless the user clearly asked for steps. Be concise and useful.`;
   return callAiChatText(provider, subSystemPrompt, task, [], []);
 }
 
@@ -2076,7 +2397,7 @@ async function generateAiSuggestion(
   });
 }
 
-function toRepoPath(provider: 'github' | 'gitlab', owner: string, name: string) {
+function toRepoPath(provider: 'github' | 'github', owner: string, name: string) {
   return `${provider}/${owner}/${name}`;
 }
 
@@ -2186,74 +2507,6 @@ async function fetchGitHubRepositorySnapshot(
   };
 }
 
-async function fetchGitLabRepositorySnapshot(
-  token: string,
-  owner: string,
-  name: string,
-  remoteId?: string | number | null,
-  apiBaseUrl?: string,
-) {
-  const baseUrl = resolveApiBaseUrl('gitlab', apiBaseUrl);
-  const projectPath = remoteId != null
-    ? encodeURIComponent(String(remoteId))
-    : encodeURIComponent(`${owner}/${name}`);
-  const project = await fetchJson<{
-    id: number;
-    path_with_namespace: string;
-    default_branch: string;
-    description?: string | null;
-    web_url?: string | null;
-    visibility?: string;
-    name: string;
-  }>(`${baseUrl}/projects/${projectPath}`, {
-    headers: buildGitLabHeaders(token),
-  });
-
-  const branches = await fetchJson<Array<{ name: string }>>(
-    `${baseUrl}/projects/${project.id}/repository/branches?per_page=100`,
-    { headers: buildGitLabHeaders(token) },
-  );
-
-  const mergeRequests = await fetchJson<Array<unknown>>(
-    `${baseUrl}/projects/${project.id}/merge_requests?state=opened&per_page=100`,
-    { headers: buildGitLabHeaders(token) },
-  );
-
-  let files: RemoteFileSnapshot[] = [];
-  try {
-    const tree = await fetchJson<Array<{ path?: string; type?: string; size?: number }>>(
-      `${baseUrl}/projects/${project.id}/repository/tree?recursive=true&per_page=200&ref=${encodeURIComponent(project.default_branch)}`,
-      { headers: buildGitLabHeaders(token) },
-    );
-    files = tree
-      .filter(item => typeof item.path === 'string')
-      .map(item => ({
-        path: item.path ?? '',
-        type: item.type ?? 'blob',
-        language: guessLanguageFromPath(item.path ?? ''),
-        size: typeof item.size === 'number' ? item.size : null,
-      }));
-  } catch {
-    files = [];
-  }
-
-  return {
-    remoteId: project.id,
-    provider: 'gitlab' as const,
-    owner,
-    name,
-    fullName: project.path_with_namespace,
-    defaultBranch: project.default_branch,
-    description: project.description ?? null,
-    htmlUrl: project.web_url ?? null,
-    isPrivate: project.visibility === 'private',
-    branches: branches.map(branch => branch.name),
-    openPullRequests: 0,
-    openMergeRequests: mergeRequests.length,
-    files,
-  } satisfies RemoteRepositorySnapshot;
-}
-
 async function persistRepositorySnapshot(
   ownerId: string,
   repoId: string,
@@ -2315,7 +2568,7 @@ async function syncRepositoryById(
   }
 
   const repo = repoSnapshot.data() as {
-    provider?: 'github' | 'gitlab';
+    provider?: 'github' | 'github';
     owner?: string;
     name?: string;
     fullName?: string;
@@ -2351,7 +2604,7 @@ async function syncRepositoryById(
           repo.remoteId,
           overrides?.apiBaseUrl ?? repo.apiBaseUrl ?? undefined,
         )
-      : await fetchGitLabRepositorySnapshot(
+      : await fetchGitHubRepositorySnapshot(
           tokenInfo.token,
           repo.owner,
           repo.name,
@@ -2384,7 +2637,7 @@ async function readRepositoryById(repoId: string) {
     throw new HttpsError('not-found', 'Repository not found.');
   }
   return snapshot.data() as {
-    provider?: 'github' | 'gitlab';
+    provider?: 'github' | 'github';
     owner?: string;
     name?: string;
     fullName?: string;
@@ -2477,7 +2730,7 @@ async function loadRepositoryFileContent(
 
   const responseText = await fetchText(
     `${baseUrl}/projects/${repo.remoteId ?? encodeURIComponent(`${repo.owner}/${repo.name}`)}/repository/files/${encodedPath}/raw?ref=${encodeURIComponent(defaultBranch)}`,
-    { headers: buildGitLabHeaders(tokenInfo.token) },
+    { headers: buildGitHubHeaders(tokenInfo.token) },
   );
   await fileRef.set(
     {
@@ -2491,7 +2744,7 @@ async function loadRepositoryFileContent(
     },
     { merge: true },
   );
-  await writeActivityEntry(ownerId, 'repo', repoId, `Loaded ${filePath} from GitLab.`, {
+  await writeActivityEntry(ownerId, 'repo', repoId, `Loaded ${filePath} from GitHub.`, {
     filePath,
     source: 'remote',
   });
@@ -2558,7 +2811,7 @@ async function dispatchGitHubWorkflow(
   };
 }
 
-async function triggerGitLabPipeline(
+async function triggerGitHubPipeline(
   token: string,
   projectId: string | number,
   workflowName: string,
@@ -2566,12 +2819,12 @@ async function triggerGitLabPipeline(
   inputs: Record<string, string>,
   apiBaseUrl?: string,
 ) {
-  const baseUrl = resolveApiBaseUrl('gitlab', apiBaseUrl);
+  const baseUrl = resolveApiBaseUrl('github', apiBaseUrl);
   const response = await fetchJson<{ id?: number; web_url?: string | null }>(
     `${baseUrl}/projects/${projectId}/pipeline`,
     {
       method: 'POST',
-      headers: buildGitLabHeaders(token),
+      headers: buildGitHubHeaders(token),
       body: JSON.stringify({
         ref,
         variables: Object.entries(inputs).map(([key, value]) => ({
@@ -2590,7 +2843,7 @@ async function triggerGitLabPipeline(
 }
 
 async function createRemoteBranch(
-  provider: 'github' | 'gitlab',
+  provider: 'github' | 'github',
   token: string,
   repo: {
     owner: string;
@@ -2636,7 +2889,7 @@ async function createRemoteBranch(
     `${baseUrl}/projects/${repo.remoteId ?? encodeURIComponent(`${repo.owner}/${repo.name}`)}/repository/branches`,
     {
       method: 'POST',
-      headers: buildGitLabHeaders(token),
+      headers: buildGitHubHeaders(token),
       body: JSON.stringify({
         branch: branchName,
         ref: baseBranch,
@@ -2650,7 +2903,7 @@ async function createRemoteBranch(
 }
 
 async function openRemotePullRequest(
-  provider: 'github' | 'gitlab',
+  provider: 'github' | 'github',
   token: string,
   repo: {
     owner: string;
@@ -2690,7 +2943,7 @@ async function openRemotePullRequest(
     `${baseUrl}/projects/${repo.remoteId ?? encodeURIComponent(`${repo.owner}/${repo.name}`)}/merge_requests`,
     {
       method: 'POST',
-      headers: buildGitLabHeaders(token),
+      headers: buildGitHubHeaders(token),
       body: JSON.stringify({
         source_branch: branchName,
         target_branch: targetBranch,
@@ -2706,7 +2959,7 @@ async function openRemotePullRequest(
 }
 
 async function mergeRemotePullRequest(
-  provider: 'github' | 'gitlab',
+  provider: 'github' | 'github',
   token: string,
   repo: {
     owner: string;
@@ -2739,7 +2992,7 @@ async function mergeRemotePullRequest(
     `${baseUrl}/projects/${repo.remoteId ?? encodeURIComponent(`${repo.owner}/${repo.name}`)}/merge_requests/${pullRequestNumber}/merge`,
     {
       method: 'PUT',
-      headers: buildGitLabHeaders(token),
+      headers: buildGitHubHeaders(token),
       body: JSON.stringify({
         squash: mergeMethod === 'squash',
       }),
@@ -2752,7 +3005,7 @@ async function mergeRemotePullRequest(
 }
 
 async function commitRemoteChanges(
-  provider: 'github' | 'gitlab',
+  provider: 'github' | 'github',
   token: string,
   repo: {
     owner: string;
@@ -2771,112 +3024,131 @@ async function commitRemoteChanges(
     throw new HttpsError('invalid-argument', 'fileChanges is required to commit code.');
   }
 
-  if (provider === 'gitlab') {
-    const hydratedChanges = await Promise.all(
-      fileChanges.map(async change => {
-        if (change.mode === 'create' || change.mode === 'update' || change.mode === 'delete') {
-          return change;
-        }
-        const encodedPath = encodeURIComponent(change.path);
-        const response = await fetch(
-          `${baseUrl}/projects/${repo.remoteId ?? encodeURIComponent(`${repo.owner}/${repo.name}`)}/repository/files/${encodedPath}?ref=${encodeURIComponent(targetBranch)}`,
+  if (provider === 'github') {
+    let lastUrl: string | null = null;
+    for (const change of fileChanges) {
+      let resolvedSha = change.sha;
+      const encodedPath = encodeURIComponent(change.path);
+      if (!resolvedSha) {
+        const metadataResponse = await fetch(
+          `${baseUrl}/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/contents/${encodedPath}?ref=${encodeURIComponent(targetBranch)}`,
           {
-            headers: buildGitLabHeaders(token),
+            headers: buildGitHubHeaders(token),
             signal: AbortSignal.timeout(20_000),
           },
         );
-        return {
-          ...change,
-          mode: response.ok ? 'update' : response.status === 404 ? 'create' : change.mode,
-        };
-      }),
-    );
-    const response = await fetchJson<{ id?: string | number; web_url?: string | null }>(
-      `${baseUrl}/projects/${repo.remoteId ?? encodeURIComponent(`${repo.owner}/${repo.name}`)}/repository/commits`,
-      {
-        method: 'POST',
-        headers: buildGitLabHeaders(token),
-        body: JSON.stringify({
-          branch: targetBranch,
-          commit_message: commitMessage,
-          actions: hydratedChanges.map(change => ({
-            action:
-              change.mode === 'delete' || (change.sha && change.content.length === 0)
-                ? 'delete'
-                : change.mode === 'update' || change.sha
-                  ? 'update'
-                  : 'create',
-            file_path: change.path,
-            content: change.content,
-          })),
-        }),
-      },
-    );
+        if (metadataResponse.ok) {
+          const metadata = (await metadataResponse.json()) as { sha?: string };
+          resolvedSha = metadata.sha;
+        } else if (metadataResponse.status !== 404) {
+          const body = await metadataResponse.text();
+          const message = truncate(body || metadataResponse.statusText, 220);
+          const code =
+            metadataResponse.status === 400
+              ? 'invalid-argument'
+              : metadataResponse.status === 401 || metadataResponse.status === 403
+                ? 'permission-denied'
+                : metadataResponse.status === 409 ||
+                      metadataResponse.status === 412 ||
+                      metadataResponse.status === 422
+                  ? 'failed-precondition'
+                  : metadataResponse.status === 429
+                    ? 'resource-exhausted'
+                    : 'internal';
+          throw new HttpsError(code as any, `Remote provider error (${metadataResponse.status}): ${message}`);
+        }
+      }
+
+      const shouldDelete = change.mode === 'delete' || (resolvedSha != null && change.content.length === 0);
+      if (shouldDelete) {
+        if (!resolvedSha) {
+          continue;
+        }
+        const response = await fetchJson<{ commit?: { html_url?: string | null } }>(
+          `${baseUrl}/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/contents/${encodedPath}`,
+          {
+            method: 'DELETE',
+            headers: buildGitHubHeaders(token),
+            body: JSON.stringify({
+              message: commitMessage,
+              branch: targetBranch,
+              sha: resolvedSha,
+            }),
+          },
+        );
+        lastUrl = response.commit?.html_url ?? lastUrl;
+        continue;
+      }
+
+      const response = await fetchJson<{ content?: { html_url?: string | null } }>(
+        `${baseUrl}/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/contents/${encodedPath}`,
+        {
+          method: 'PUT',
+          headers: buildGitHubHeaders(token),
+          body: JSON.stringify({
+            message: commitMessage,
+            content: Buffer.from(change.content, 'utf8').toString('base64'),
+            branch: targetBranch,
+            sha: resolvedSha ?? undefined,
+          }),
+        },
+      );
+      lastUrl = response.content?.html_url ?? lastUrl;
+    }
     return {
-      remoteId: response.id ?? commitMessage,
-      url: response.web_url ?? null,
+      remoteId: fileChanges.map(change => change.path).join(','),
+      url: lastUrl,
     };
   }
 
-  if (fileChanges.length > 1) {
-    throw new HttpsError(
-      'failed-precondition',
-      'GitHub commit scaffolding currently supports a single file change per action.',
-    );
-  }
-
-  const [change] = fileChanges;
-  let resolvedSha = change.sha;
-  if (!resolvedSha && change.content.length > 0) {
-    const metadataResponse = await fetch(
-      `${baseUrl}/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/contents/${encodeURIComponent(change.path)}?ref=${encodeURIComponent(targetBranch)}`,
-      {
-        headers: buildGitHubHeaders(token),
-        signal: AbortSignal.timeout(20_000),
-      },
-    );
-    if (metadataResponse.ok) {
-      const metadata = (await metadataResponse.json()) as { sha?: string };
-      resolvedSha = metadata.sha;
-    } else if (metadataResponse.status !== 404) {
-      const body = await metadataResponse.text();
-      const message = truncate(body || metadataResponse.statusText, 220);
-      const code =
-        metadataResponse.status === 400
-          ? 'invalid-argument'
-          : metadataResponse.status === 401 || metadataResponse.status === 403
-            ? 'permission-denied'
-            : metadataResponse.status === 409 ||
-                  metadataResponse.status === 412 ||
-                  metadataResponse.status === 422
-              ? 'failed-precondition'
-              : metadataResponse.status === 429
-                ? 'resource-exhausted'
-                : 'internal';
-      throw new HttpsError(code as any, `Remote provider error (${metadataResponse.status}): ${message}`);
-    }
-  }
-  const response = await fetchJson<{ content?: { html_url?: string | null } }>(
-    `${baseUrl}/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/contents/${encodeURIComponent(change.path)}`,
+  const hydratedChanges = await Promise.all(
+    fileChanges.map(async change => {
+      if (change.mode === 'create' || change.mode === 'update' || change.mode === 'delete') {
+        return change;
+      }
+      const encodedPath = encodeURIComponent(change.path);
+      const response = await fetch(
+        `${baseUrl}/projects/${repo.remoteId ?? encodeURIComponent(`${repo.owner}/${repo.name}`)}/repository/files/${encodedPath}?ref=${encodeURIComponent(targetBranch)}`,
+        {
+          headers: buildGitHubHeaders(token),
+          signal: AbortSignal.timeout(20_000),
+        },
+      );
+      return {
+        ...change,
+        mode: response.ok ? 'update' : response.status === 404 ? 'create' : change.mode,
+      };
+    }),
+  );
+  const response = await fetchJson<{ id?: string | number; web_url?: string | null }>(
+    `${baseUrl}/projects/${repo.remoteId ?? encodeURIComponent(`${repo.owner}/${repo.name}`)}/repository/commits`,
     {
-      method: 'PUT',
+      method: 'POST',
       headers: buildGitHubHeaders(token),
       body: JSON.stringify({
-        message: commitMessage,
-        content: Buffer.from(change.content, 'utf8').toString('base64'),
         branch: targetBranch,
-        sha: resolvedSha ?? undefined,
+        commit_message: commitMessage,
+        actions: hydratedChanges.map(change => ({
+          action:
+            change.mode === 'delete' || (change.sha && change.content.length === 0)
+              ? 'delete'
+              : change.mode === 'update' || change.sha
+                ? 'update'
+                : 'create',
+          file_path: change.path,
+          content: change.content,
+        })),
       }),
     },
   );
   return {
-    remoteId: change.path,
-    url: response.content?.html_url ?? null,
+    remoteId: response.id ?? commitMessage,
+    url: response.web_url ?? null,
   };
 }
 
 async function triggerCheckExecution(
-  provider: 'github' | 'gitlab',
+  provider: 'github' | 'github',
   token: string,
   repo: {
     owner: string;
@@ -2892,7 +3164,7 @@ async function triggerCheckExecution(
   if (provider === 'github') {
     return await dispatchGitHubWorkflow(token, repo.owner, repo.name, workflowName, ref, inputs, apiBaseUrl);
   }
-  return await triggerGitLabPipeline(token, repo.remoteId ?? encodeURIComponent(`${repo.owner}/${repo.name}`), workflowName, ref, inputs, apiBaseUrl);
+  return await triggerGitHubPipeline(token, repo.remoteId ?? encodeURIComponent(`${repo.owner}/${repo.name}`), workflowName, ref, inputs, apiBaseUrl);
 }
 
 async function ensureRepositoryAccess(repoId: string, ownerId: string) {
@@ -2903,7 +3175,7 @@ async function ensureRepositoryAccess(repoId: string, ownerId: string) {
 
   const repo = repoSnapshot.data() as {
     ownerId?: string;
-    provider?: 'github' | 'gitlab';
+    provider?: 'github' | 'github';
     owner?: string;
     name?: string;
     defaultBranch?: string;
@@ -2925,23 +3197,34 @@ async function ensureRepositoryAccess(repoId: string, ownerId: string) {
 
 export const syncUserProfile = functions.auth.user().onCreate(async user => {
   const profileRef = db.collection('users').doc(user.uid);
+  const resolvedEmail = resolveAuthUserEmail(user);
+  const normalizedForReviewer =
+    resolvedEmail?.trim().toLowerCase() ??
+    user.email?.trim().toLowerCase() ??
+    '';
 
-  await profileRef.set(
-    {
-      displayName: user.displayName ?? null,
-      email: user.email ?? null,
-      photoUrl: user.photoURL ?? null,
-      authProviders: user.providerData.map(provider => provider.providerId),
-      isGuest: user.providerData.length === 0,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    },
-    { merge: true },
-  );
+  const profilePayload: Record<string, unknown> = {
+    displayName: user.displayName ?? null,
+    email: resolvedEmail ?? user.email ?? null,
+    photoUrl: user.photoURL ?? null,
+    authProviders: user.providerData.map(provider => provider.providerId),
+    isGuest: user.providerData.length === 0,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+
+  if (normalizedForReviewer === APP_STORE_REVIEWER_TEST_EMAIL) {
+    profilePayload.appStoreReviewerTestAccount = true;
+    profilePayload.appStoreReviewerTestExpiresAt = Timestamp.fromMillis(
+      Date.now() + APP_STORE_REVIEWER_TEST_MAX_AGE_MS,
+    );
+  }
+
+  await profileRef.set(profilePayload, { merge: true });
 
   const freePlan = PLANS.free;
   await db.collection('wallets').doc(user.uid).set(
-    isUnlimitedTestWalletEnabled()
+    isUnlimitedUser(resolvedEmail) || isUnlimitedUser(user.email)
       ? unlimitedWalletDocument()
       : {
           balance: freePlan.monthlyIncludedTokens,
@@ -2960,6 +3243,116 @@ export const syncUserProfile = functions.auth.user().onCreate(async user => {
         },
     { merge: true },
   );
+});
+
+/**
+ * Removes the App Store reviewer test Auth user after 30 days (creation time).
+ * Deletion triggers `deleteUserDataOnAuthDelete` for Firestore cleanup.
+ */
+export const purgeExpiredAppStoreReviewerTestAccounts = onSchedule(
+  {
+    schedule: 'every day 04:00',
+    timeZone: 'Etc/UTC',
+    region: runtimeSettings.firebaseRegion,
+    memory: '256MiB',
+    timeoutSeconds: 540,
+  },
+  async () => {
+    const auth = getAuth();
+    const target = APP_STORE_REVIEWER_TEST_EMAIL;
+    const maxAgeMs = APP_STORE_REVIEWER_TEST_MAX_AGE_MS;
+    let pageToken: string | undefined;
+    let scanned = 0;
+    let deleted = 0;
+
+    do {
+      const result = await auth.listUsers(1000, pageToken);
+      for (const userRecord of result.users) {
+        scanned += 1;
+        const email = resolveAuthUserEmail(userRecord)?.trim().toLowerCase();
+        if (email !== target) {
+          continue;
+        }
+        const createdAtMs = new Date(userRecord.metadata.creationTime).getTime();
+        if (Date.now() - createdAtMs < maxAgeMs) {
+          continue;
+        }
+        try {
+          await auth.deleteUser(userRecord.uid);
+          deleted += 1;
+          functions.logger.info('purged_app_store_reviewer_test_account', {
+            uid: userRecord.uid,
+            creationTime: userRecord.metadata.creationTime,
+          });
+        } catch (err) {
+          functions.logger.error('purge_app_store_reviewer_test_failed', {
+            uid: userRecord.uid,
+            error: normalizeError(err),
+          });
+        }
+      }
+      pageToken = result.pageToken;
+    } while (pageToken);
+
+    functions.logger.info('purge_app_store_reviewer_test_accounts_done', {
+      scanned,
+      deleted,
+    });
+  },
+);
+
+/** Delete all Firestore data for a user when their Auth account is deleted (in-app account deletion). */
+export const deleteUserDataOnAuthDelete = functions.auth.user().onDelete(async user => {
+  const uid = user.uid;
+  const batchSize = 500;
+
+  async function deleteCollection(path: string): Promise<void> {
+    const colRef = db.collection(path);
+    let snapshot = await colRef.limit(batchSize).get();
+    while (!snapshot.empty) {
+      const batch = db.batch();
+      snapshot.docs.forEach(doc => batch.delete(doc.ref));
+      await batch.commit();
+      snapshot = await colRef.limit(batchSize).get();
+    }
+  }
+
+  async function deleteQueryByOwnerId(collectionName: string): Promise<void> {
+    const queryRef = db.collection(collectionName).where('ownerId', '==', uid);
+    let snapshot = await queryRef.limit(batchSize).get();
+    while (!snapshot.empty) {
+      const batch = db.batch();
+      snapshot.docs.forEach(doc => batch.delete(doc.ref));
+      await batch.commit();
+      snapshot = await queryRef.limit(batchSize).get();
+    }
+  }
+
+  try {
+    await deleteCollection(`users/${uid}/devices`);
+    await deleteCollection(`users/${uid}/connections`);
+    await deleteCollection(`users/${uid}/providerTokens`);
+    const userRef = db.collection('users').doc(uid);
+    await userRef.delete();
+
+    await deleteCollection(`wallets/${uid}/usage`);
+    const walletRef = db.collection('wallets').doc(uid);
+    await walletRef.delete();
+
+    const reposSnapshot = await db.collection('repositories').where('ownerId', '==', uid).get();
+    for (const doc of reposSnapshot.docs) {
+      await deleteCollection(`repositories/${doc.id}/files`);
+      await doc.ref.delete();
+    }
+
+    await deleteQueryByOwnerId('changeRequests');
+    await deleteQueryByOwnerId('gitActions');
+    await deleteQueryByOwnerId('checksRuns');
+    await deleteQueryByOwnerId('activity');
+  } catch (err) {
+    functions.logger.error('deleteUserDataOnAuthDelete failed for uid', uid, err);
+    throw err;
+  }
 });
 
 export const getProviderConfig = onCall(BASE_CALLABLE_OPTIONS, async request => {
@@ -2997,7 +3390,7 @@ export const syncProviderConnection = onCall(BASE_CALLABLE_OPTIONS, async reques
   const startedAt = Date.now();
   const ownerId = requireAuth(request);
   const data = request.data as Partial<ProviderConnectionSyncData>;
-  const provider = asEnum(data.provider, 'provider', ['github', 'gitlab'] as const);
+  const provider = asEnum(data.provider, 'provider', ['github', 'github'] as const);
   const accessToken = asString(data.accessToken, 'accessToken');
 
   try {
@@ -3089,7 +3482,7 @@ export const syncProviderConnection = onCall(BASE_CALLABLE_OPTIONS, async reques
 export const listProviderRepositories = onCall(GIT_CALLABLE_OPTIONS, async request => {
   const ownerId = requireAuth(request);
   const data = (request.data ?? {}) as ProviderRepositoryListData;
-  const provider = asEnum(data.provider, 'provider', ['github', 'gitlab'] as const);
+  const provider = asEnum(data.provider, 'provider', ['github', 'github'] as const);
   const query = asOptionalString(data.query);
   const apiBaseUrl = asOptionalString(data.apiBaseUrl);
 
@@ -3104,7 +3497,7 @@ export const listProviderRepositories = onCall(GIT_CALLABLE_OPTIONS, async reque
   const repositories =
     provider === 'github'
       ? await listGitHubRepositories(tokenInfo.token, query, apiBaseUrl)
-      : await listGitLabRepositories(tokenInfo.token, query, apiBaseUrl);
+      : await listGitHubRepositories(tokenInfo.token, query, apiBaseUrl);
 
   return {
     provider,
@@ -3117,7 +3510,7 @@ export const connectRepository = onCall(GIT_CALLABLE_OPTIONS, async request => {
   const startedAt = Date.now();
   const ownerId = requireAuth(request);
   const data = request.data as Partial<RepositoryConnectionData>;
-  const provider = asEnum(data.provider, 'provider', ['github', 'gitlab'] as const);
+  const provider = asEnum(data.provider, 'provider', ['github', 'github'] as const);
   const repository = asOptionalString(data.repository);
   const parsedRepository = repository ? parseRepositorySlug(repository) : null;
   const owner = asString(data.owner ?? parsedRepository?.owner, 'owner');
@@ -3181,7 +3574,7 @@ export const connectRepository = onCall(GIT_CALLABLE_OPTIONS, async request => {
       category: 'repository',
       type: 'repo_connected',
       title: 'Repository connected',
-      body: `${owner}/${name} is now available in ForgeAI.`,
+      body: `${owner}/${name} is now available in CodeCatalystAI.`,
       destination: 'repo',
       repoId,
     });
@@ -3311,6 +3704,263 @@ export const connectRepository = onCall(GIT_CALLABLE_OPTIONS, async request => {
   }
 });
 
+export const createProjectRepository = onCall(
+  {
+    ...GIT_AND_AI_CALLABLE_OPTIONS,
+    timeoutSeconds: 300,
+    memory: '1GiB',
+  },
+  async request => {
+    const startedAt = Date.now();
+    const ownerId = requireAuth(request);
+    const data = (request.data ?? {}) as CreateProjectRepositoryData;
+    const provider = asEnum(data.provider ?? 'github', 'provider', ['github', 'github'] as const);
+    const idea = asString(data.idea, 'idea');
+    const repoSlug = normalizeRepoSlugInput(asString(data.repoName, 'repoName'));
+    const stackHint = asOptionalString(data.stackHint);
+    const isPrivate = data.isPrivate !== false;
+    const namespace = asOptionalNamespace(data.namespace);
+    const accessToken = asOptionalString(data.accessToken);
+    const apiBaseUrl = asOptionalString(data.apiBaseUrl);
+
+    let preRepoId = '';
+    let reservedRepoId = '';
+    let reservedAmount = 0;
+    let reservationActive = false;
+
+    try {
+      if (accessToken) {
+        const profile = await fetchGitHubConnectionProfile(accessToken);
+        await persistUserProviderToken(ownerId, provider, accessToken, {
+          account: profile.account,
+          scopeSummary: summarizeGitHubScopes(profile.scopes),
+          metadata: {
+            displayName: profile.displayName,
+            scopes: profile.scopes,
+            lastValidatedAt: FieldValue.serverTimestamp(),
+          },
+        });
+      }
+
+      const tokenInfo = await resolveProviderToken(ownerId, provider, accessToken);
+      if (!tokenInfo) {
+        throw new HttpsError(
+          'failed-precondition',
+          `${providerLabel(provider)} access is not connected yet. Sign in or paste a token first.`,
+        );
+      }
+
+      let githubOrg: string | null = null;
+      let predictedOwner: string;
+      if (namespace) {
+        githubOrg = namespace;
+        predictedOwner = namespace;
+      } else {
+        const profile = await fetchGitHubConnectionProfile(tokenInfo.token);
+        predictedOwner = profile.account;
+      }
+
+      preRepoId = makeRepositoryId(provider, predictedOwner, repoSlug);
+      reservedRepoId = preRepoId;
+      reservedAmount = buildActionCost(
+        'ai_project_scaffold',
+        Math.max(900, Math.ceil(idea.length / 4) + 2200),
+      );
+      const aiCost = buildCostSnapshot({
+        actionType: 'ai_project_scaffold',
+        provider: 'openai',
+        estimatedTokens: reservedAmount,
+      });
+
+      await reserveWalletTokens(
+        ownerId,
+        reservedRepoId,
+        reservedAmount,
+        'openai',
+        reservedAmount,
+        'ai_project_scaffold',
+        'Reserved for AI new project scaffold.',
+      );
+      reservationActive = true;
+
+      const plan = await generateProjectScaffoldPlan(idea, repoSlug, stackHint);
+
+      const remote = await createRemoteEmptyRepository(provider, tokenInfo.token, {
+        name: repoSlug,
+        description: plan.description,
+        isPrivate,
+        githubOrg,
+        apiBaseUrl,
+      });
+
+      const finalRepoId = makeRepositoryId(provider, remote.owner, remote.name);
+      if (finalRepoId !== reservedRepoId) {
+        await releaseWalletTokens(
+          ownerId,
+          reservedRepoId,
+          reservedAmount,
+          'openai',
+          reservedAmount,
+          'ai_project_scaffold',
+          'Switched reservation to canonical repository id.',
+        );
+        reservationActive = false;
+        reservedRepoId = finalRepoId;
+        await reserveWalletTokens(
+          ownerId,
+          reservedRepoId,
+          reservedAmount,
+          'openai',
+          reservedAmount,
+          'ai_project_scaffold',
+          'Reserved for AI new project scaffold.',
+        );
+        reservationActive = true;
+      }
+
+      await db.collection('repositories').doc(finalRepoId).set(
+        {
+          ownerId,
+          provider,
+          owner: remote.owner,
+          name: remote.name,
+          fullName: remote.fullName,
+          remoteId: remote.remoteId,
+          defaultBranch: remote.defaultBranch,
+          description: plan.description,
+          htmlUrl: remote.htmlUrl,
+          isPrivate,
+          branches: [remote.defaultBranch],
+          openPullRequests: 0,
+          openMergeRequests: 0,
+          filesCount: 0,
+          syncStatus: 'connected',
+          apiBaseUrl: apiBaseUrl ?? null,
+          lastSyncedAt: null,
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      const repoHandle = {
+        owner: remote.owner,
+        name: remote.name,
+        remoteId: remote.remoteId,
+        defaultBranch: remote.defaultBranch,
+      };
+
+      let index = 0;
+      for (const file of plan.files) {
+        index += 1;
+        const commitMessage =
+          index === 1
+            ? 'chore: initial scaffold from CodeCatalystAI'
+            : `chore: add ${file.path}`;
+        await commitRemoteChanges(
+          provider,
+          tokenInfo.token,
+          repoHandle,
+          remote.defaultBranch,
+          commitMessage,
+          [{ path: file.path, content: file.content, mode: 'create' }],
+          apiBaseUrl,
+        );
+      }
+
+      const syncResult = await syncRepositoryById(ownerId, finalRepoId, {
+        accessToken,
+        apiBaseUrl,
+      });
+
+      await captureWalletTokens(
+        ownerId,
+        reservedRepoId,
+        reservedAmount,
+        'openai',
+        reservedAmount,
+        'ai_project_scaffold',
+        'AI project scaffold completed.',
+        {
+          latencyMs: Date.now() - startedAt,
+          model: aiCost.assumedModel,
+        },
+      );
+      reservationActive = false;
+
+      await writeActivityEntry(
+        ownerId,
+        'repo',
+        finalRepoId,
+        `Created ${remote.fullName} with an AI starter scaffold (${plan.files.length} files).`,
+        {
+          provider,
+          fileCount: plan.files.length,
+        },
+      );
+      await sendPushNotification({
+        ownerId,
+        category: 'repository',
+        type: 'repo_connected',
+        title: 'New repository ready',
+        body: `${remote.fullName} was created with AI-generated starter files.`,
+        destination: 'repo',
+        repoId: finalRepoId,
+      });
+      await writeOperationalMetric({
+        operation: 'create_project_repository',
+        status: 'success',
+        ownerId,
+        repoId: finalRepoId,
+        provider,
+        durationMs: Date.now() - startedAt,
+        remoteStatus: typeof syncResult.status === 'string' ? syncResult.status : 'synced',
+        metadata: {
+          fileCount: plan.files.length,
+          scaffoldDescription: truncate(plan.description, 120),
+        },
+      });
+
+      return {
+        repoId: finalRepoId,
+        fullName: remote.fullName,
+        htmlUrl: remote.htmlUrl,
+        defaultBranch: remote.defaultBranch,
+        fileCount: plan.files.length,
+        syncStatus: syncResult.status,
+      };
+    } catch (error) {
+      if (reservationActive && reservedRepoId && reservedAmount > 0) {
+        await releaseWalletTokens(
+          ownerId,
+          reservedRepoId,
+          reservedAmount,
+          'openai',
+          reservedAmount,
+          'ai_project_scaffold',
+          'Released reservation after create-project failure.',
+          {
+            latencyMs: Date.now() - startedAt,
+          },
+        );
+      }
+      const normalizedError = normalizeError(error);
+      const failureProvider: 'github' | 'github' =
+        data.provider === 'github' ? 'github' : 'github';
+      await writeOperationalMetric({
+        operation: 'create_project_repository',
+        status: 'failure',
+        ownerId,
+        repoId: preRepoId || undefined,
+        provider: failureProvider,
+        durationMs: Date.now() - startedAt,
+        errorCode: normalizedError.code,
+        errorMessage: normalizedError.message,
+      });
+      throw error;
+    }
+  },
+);
+
 export const syncRepository = onCall(GIT_CALLABLE_OPTIONS, async request => {
   const startedAt = Date.now();
   const ownerId = requireAuth(request);
@@ -3343,7 +3993,7 @@ export const syncRepository = onCall(GIT_CALLABLE_OPTIONS, async request => {
       return result;
     }
 
-    const provider = data.provider ? asEnum(data.provider, 'provider', ['github', 'gitlab'] as const) : null;
+    const provider = data.provider ? asEnum(data.provider, 'provider', ['github', 'github'] as const) : null;
     const owner = asOptionalString(data.owner);
     const name = asOptionalString(data.name);
 
@@ -3374,7 +4024,7 @@ export const syncRepository = onCall(GIT_CALLABLE_OPTIONS, async request => {
       category: 'repository',
       type: 'repo_sync_completed',
       title: 'Repository synced',
-      body: `${owner}/${name} finished syncing in ForgeAI.`,
+      body: `${owner}/${name} finished syncing in CodeCatalystAI.`,
       destination: 'repo',
       repoId: generatedRepoId,
     });
@@ -3419,7 +4069,149 @@ interface AskRepoData {
   dangerMode?: boolean;
 }
 
+function buildRepoSearchTerms(prompt: string, history: Array<{ role: 'user' | 'assistant'; text: string }>): string[] {
+  const seed = `${prompt}\n${history
+    .filter(item => item.role === 'user')
+    .slice(-3)
+    .map(item => item.text)
+    .join(' ')}`.toLowerCase();
+  const raw = seed.split(/[^a-z0-9_./-]+/g).filter(Boolean);
+  const stopWords = new Set([
+    'the',
+    'and',
+    'for',
+    'with',
+    'this',
+    'that',
+    'from',
+    'into',
+    'your',
+    'you',
+    'please',
+    'just',
+    'have',
+    'what',
+    'where',
+    'when',
+    'then',
+    'than',
+    'it',
+    'its',
+    'is',
+    'are',
+    'was',
+    'were',
+    'can',
+    'could',
+    'would',
+    'should',
+    'about',
+    'repo',
+    'repository',
+    'code',
+    'file',
+    'files',
+    'app',
+    'ai',
+  ]);
+  const deduped = new Set<string>();
+  for (const token of raw) {
+    if (token.length < 3 || stopWords.has(token)) {
+      continue;
+    }
+    deduped.add(token);
+    if (token.includes('/')) {
+      for (const piece of token.split('/')) {
+        if (piece.length >= 3 && !stopWords.has(piece)) {
+          deduped.add(piece);
+        }
+      }
+    }
+  }
+  return [...deduped].slice(0, 18);
+}
+
+function scoreRepoFileForPrompt(path: string, content: string, terms: string[]): number {
+  if (terms.length === 0) {
+    return 0;
+  }
+  const p = path.toLowerCase();
+  const c = content.toLowerCase();
+  let score = 0;
+  for (const term of terms) {
+    if (p.includes(term)) {
+      score += 8;
+    }
+    if (p.endsWith(`/${term}`) || p.endsWith(term)) {
+      score += 10;
+    }
+    const contentHits = c.split(term).length - 1;
+    if (contentHits > 0) {
+      score += Math.min(6, contentHits);
+    }
+  }
+  if (p.endsWith('.md') || p.endsWith('.lock') || p.includes('/build/') || p.includes('/dist/')) {
+    score -= 2;
+  }
+  return score;
+}
+
+type AskRepoPlannedEditAction = 'create' | 'modify' | 'delete';
+
+interface AskRepoPlannedEdit {
+  path: string;
+  action: AskRepoPlannedEditAction;
+  rationale: string;
+}
+
+function inferEditAction(prompt: string, line: string): AskRepoPlannedEditAction {
+  const s = `${prompt} ${line}`.toLowerCase();
+  if (
+    s.includes('delete') ||
+    s.includes('remove') ||
+    s.includes('drop') ||
+    s.includes('deprecate')
+  ) {
+    return 'delete';
+  }
+  if (
+    s.includes('create') ||
+    s.includes('add') ||
+    s.includes('new file') ||
+    s.includes('scaffold')
+  ) {
+    return 'create';
+  }
+  return 'modify';
+}
+
+function extractPlannedEditsFromReply(reply: string, prompt: string): AskRepoPlannedEdit[] {
+  const out: AskRepoPlannedEdit[] = [];
+  const pathFromTicks = /`([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)`/g;
+  const seen = new Set<string>();
+  for (const line of reply.split('\n')) {
+    const matches = [...line.matchAll(pathFromTicks)];
+    for (const match of matches) {
+      const path = (match[1] || '').trim();
+      if (!path || seen.has(path)) {
+        continue;
+      }
+      seen.add(path);
+      out.push({
+        path,
+        action: inferEditAction(prompt, line),
+        rationale: truncate(normalizeText(line.replace(match[0], '').trim()) || 'Likely file target from assistant response.', 180),
+      });
+      if (out.length >= 12) {
+        return out;
+      }
+    }
+  }
+  return out;
+}
+
 export const askRepo = onCall(GIT_AND_AI_CALLABLE_OPTIONS, async request => {
+  const startedAt = Date.now();
   const ownerId = requireAuth(request);
   const data = (request.data ?? {}) as AskRepoData;
   const prompt = asString(data.prompt, 'prompt');
@@ -3456,6 +4248,8 @@ export const askRepo = onCall(GIT_AND_AI_CALLABLE_OPTIONS, async request => {
     .filter((item): item is { role: 'user' | 'assistant'; text: string } => Boolean(item));
 
   let repoContext = 'The user is not currently in a specific repository.';
+  const searchTerms = buildRepoSearchTerms(prompt, history);
+  let inspectedFilesForTrace: string[] = [];
   if (data.repoId) {
     const repo = await ensureRepositoryAccess(data.repoId, ownerId);
     const fullName = repo.fullName ?? `${repo.owner}/${repo.name}`;
@@ -3463,13 +4257,39 @@ export const askRepo = onCall(GIT_AND_AI_CALLABLE_OPTIONS, async request => {
       .collection('repositories')
       .doc(data.repoId)
       .collection('files')
-      .limit(120)
+      .limit(220)
       .get();
-    const paths = filesSnapshot.docs
-      .map(d => (d.data().path as string) ?? d.id)
-      .filter(Boolean)
-      .slice(0, 120);
-    repoContext = `The user is in repository: ${fullName}. Files in the repo (up to 120): ${paths.join(', ') || '(none synced yet)'}.`;
+    const fileRows = filesSnapshot.docs.map(d => {
+      const raw = d.data() as { path?: string; content?: string };
+      return {
+        path: typeof raw.path === 'string' ? raw.path : d.id,
+        content: typeof raw.content === 'string' ? raw.content : '',
+      };
+    });
+    const paths = fileRows.map(r => r.path).filter(Boolean).slice(0, 140);
+    const ranked = fileRows
+      .map(file => ({
+        ...file,
+        score: scoreRepoFileForPrompt(file.path, file.content, searchTerms),
+      }))
+      .filter(file => file.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8);
+    inspectedFilesForTrace = ranked.map(file => file.path);
+    const relevantSnippets = ranked
+      .map(file => {
+        const normalized = normalizeText(file.content);
+        const shortBody = truncate(normalized, 900);
+        if (!shortBody) {
+          return `- ${file.path} (matched by path/metadata)`;
+        }
+        return `- ${file.path}: ${shortBody}`;
+      })
+      .join('\n');
+    repoContext = `The user is in repository: ${fullName}. Files in the repo (up to 140): ${paths.join(', ') || '(none synced yet)'}.
+
+Likely relevant files/snippets for this request:
+${relevantSnippets || '(no strong matches from synced content yet)'}`;
   } else {
     const reposSnapshot = await db
       .collection('repositories')
@@ -3509,31 +4329,110 @@ export const askRepo = onCall(GIT_AND_AI_CALLABLE_OPTIONS, async request => {
       .join(', ') || '(none connected)'}. Sample file index across repositories: ${sampledRepoContexts.join(' | ') || '(no files indexed yet)'}.`;
   }
 
-  const systemPrompt = `You are ForgeAI, a mobile-first coding assistant like Cursor. The user has full access to their repos and can make any changes through you. Assume maximum autonomy within connected provider permissions.
+  const billingRepoId =
+    typeof data.repoId === 'string' && data.repoId.trim().length > 0
+      ? data.repoId.trim()
+      : (
+          await db
+            .collection('repositories')
+            .where('ownerId', '==', ownerId)
+            .limit(1)
+            .get()
+        ).docs[0]?.id ?? ownerId;
+
+  const historyChars = history.reduce((acc, h) => acc + h.text.length, 0);
+  const mediaBoost = media.length * 400;
+  const estimatedTokens = buildActionCost(
+    'repo_prompt',
+    Math.max(96, Math.ceil((prompt.length + historyChars + mediaBoost) / 4)),
+  );
+  const aiCost = buildCostSnapshot({
+    actionType: 'repo_prompt',
+    provider,
+    estimatedTokens,
+  });
+
+  await reserveWalletTokens(
+    ownerId,
+    billingRepoId,
+    estimatedTokens,
+    provider,
+    estimatedTokens,
+    'repo_prompt',
+    'Pre-authorized Prompt reply.',
+  );
+
+  const systemPrompt = `You are CodeCatalystAI, an autonomous coding agent on mobile. Behave like a strong IDE coding assistant: confident, practical, and action-first. The user has connected repositories and expects you to work from repo context immediately.
 
 ${repoContext}
 
-${dangerMode ? 'DANGER MODE IS ON: prefer decisive execution plans, minimal handholding, and direct action steps. If they ask to implement, respond with concrete, high-leverage edits and commands. Still avoid unsafe or impossible claims.' : 'Standard mode: be explicit, careful, and ask clarifying questions when needed.'}
+${dangerMode ? 'Advanced mode: provide decisive implementation guidance and concrete next steps. Still avoid unsafe or impossible claims.' : 'Standard mode: stay concise and practical; ask a short clarifying question only when absolutely required to avoid a wrong answer.'}
 
-When you need specialized help (e.g. security review, naming, refactor plan, code explanation), you can recruit another AI agent: use the recruit_agent tool with a clear role and task; the sub-agent's result will be given back to you to incorporate into your reply. Use recruitment when it improves the answer; do not over-use it for simple questions.
+How to write replies (this matters most):
+- Sound human: warm, conversational plain English—like a skilled coworker texting back, not a server log or API doc.
+- Avoid: fake log lines ("INFO:", "Result:", "Step 1/3"), robotic bullet walls, tables of metadata, or syntax-heavy dumps unless they asked for raw output.
+- Prefer: short paragraphs, natural phrasing, and code blocks only when code helps. If you use bullets, keep them light and readable.
+- Do not narrate your process ("I will now analyze…") unless it genuinely helps.
+- Never claim you "don't have enough info about the repo" when repo context exists above. Start with the best actionable answer using that context.
+- Do not ask the user to locate files for you as a first step. First, name the likely files/modules yourself and propose concrete edits.
 
-Answer their questions in plain language. If they ask for code changes, explain exactly what to do (file paths, edits, or steps). If they ask "make X" or "add Y", describe the changes clearly so they can use the Editor or you can help in a follow-up.
+When you need deeper expertise (security, naming, refactor plan, explanation), you may use the recruit_agent tool with a clear role and task; weave the result into your answer in normal language. Do not over-use it for simple questions.
 
-Deploying functions through Git: If the user asks to deploy functions, deploy via git, or push to deploy, tell them to open the Git tab and tap "Deploy via Git". That commits and pushes their changes with a deploy message; if they have CI (e.g. GitHub Actions) set to run Firebase deploy on push, functions will deploy automatically. They can also run "firebase deploy --only functions" locally after pulling.
+When they ask to make or fix something, default to execution mode (like Cursor): act as if you are making the edits now, name the exact files you will touch, describe the concrete changes in order, and include ready-to-apply code for each changed area. Avoid "just run this" style replies unless a required permission or secret is missing.
+If they ask to deploy Firebase functions via git, remind them they can type **deploy functions** or **deploy firebase** in Prompt (dispatches deploy-functions.yml) after adding that workflow and one auth secret in repo Actions secrets: FIREBASE_TOKEN (easy) or FIREBASE_SERVICE_ACCOUNT (recommended)—or use Prompt tools.
+If they ask to run the app via git, remind them they can type **run app**, **run the app**, or **run app via git** in Prompt (dispatches run-app.yml) or use Prompt tools → Run app via Git. Mention installing workflows if missing: **install run app** / **install deploy workflow**.
 
-Running apps with logs/screenshots through Git: If the user asks to run the app via git, trigger app runs, or capture logs/screenshots, tell them to use Prompt > Run app via Git with a workflow file like run-app.yml, and ensure the workflow uploads artifacts (screenshots + logs).
+Be concise, actionable, and sound like a person.`;
 
-Be concise, actionable, and friendly.`;
+  let reply: string;
+  try {
+    reply = await callAiChatTextWithAgentRecruitment(
+      provider,
+      systemPrompt,
+      prompt,
+      media,
+      history,
+      repoContext,
+    );
+    await captureWalletTokens(
+      ownerId,
+      billingRepoId,
+      estimatedTokens,
+      provider,
+      estimatedTokens,
+      'repo_prompt',
+      'Prompt reply generated.',
+      {
+        actualProviderCostUsd: aiCost.estimatedProviderCostUsd,
+        latencyMs: Date.now() - startedAt,
+        model: aiCost.assumedModel,
+      },
+    );
+  } catch (error) {
+    await releaseWalletTokens(
+      ownerId,
+      billingRepoId,
+      estimatedTokens,
+      provider,
+      estimatedTokens,
+      'repo_prompt',
+      'Released reservation after Prompt failed.',
+      {
+        latencyMs: Date.now() - startedAt,
+        model: aiCost.assumedModel,
+      },
+    );
+    throw error;
+  }
 
-  const reply = await callAiChatTextWithAgentRecruitment(
-    provider,
-    systemPrompt,
-    prompt,
-    media,
-    history,
-    repoContext,
-  );
-  return { reply };
+  const plannedEdits = extractPlannedEditsFromReply(reply, prompt);
+  return {
+    reply,
+    trace: {
+      inspectedFiles: inspectedFilesForTrace,
+      plannedEdits,
+    },
+  };
 });
 
 export const loadRepositoryFile = onCall(GIT_CALLABLE_OPTIONS, async request => {
@@ -3756,7 +4655,7 @@ export const suggestChange = onCall(GIT_AND_AI_CALLABLE_OPTIONS, async request =
     category: 'ai',
     type: 'ai_ready',
     title: 'AI change ready to review',
-    body: `Your suggestion for ${filePath} is ready in ForgeAI.`,
+    body: `Your suggestion for ${filePath} is ready in CodeCatalystAI.`,
     destination: 'prompt',
     repoId,
     changeRequestId: changeRef.id,
@@ -3781,7 +4680,7 @@ export const submitGitAction = onCall(GIT_CALLABLE_OPTIONS, async request => {
   const ownerId = requireAuth(request);
   const data = request.data as Partial<GitActionData>;
   const repoId = asString(data.repoId, 'repoId');
-  const provider = asEnum(data.provider, 'provider', ['github', 'gitlab'] as const);
+  const provider = asEnum(data.provider, 'provider', ['github', 'github'] as const);
   const actionType = asEnum(data.actionType, 'actionType', GIT_ACTION_TYPES);
   const repo = await ensureRepositoryAccess(repoId, ownerId);
   const branchName = asOptionalString(data.branchName);
@@ -3991,7 +4890,7 @@ export const submitGitAction = onCall(GIT_CALLABLE_OPTIONS, async request => {
         branchName ?? repo.defaultBranch ?? 'main',
         baseBranch,
         prTitle ?? commitMessage ?? `Change for ${repo.fullName ?? repoId}`,
-        prDescription ?? 'Opened from ForgeAI after user approval.',
+        prDescription ?? 'Opened from CodeCatalystAI after user approval.',
         repo.apiBaseUrl ?? undefined,
       );
     } else if (actionType === 'merge_pr') {
@@ -4053,7 +4952,7 @@ export const submitGitAction = onCall(GIT_CALLABLE_OPTIONS, async request => {
           defaultBranch: repo.defaultBranch,
         },
         branchName ?? repo.defaultBranch ?? 'main',
-        commitMessage ?? `ForgeAI commit for ${repo.fullName ?? repoId}`,
+        commitMessage ?? `CodeCatalystAI commit for ${repo.fullName ?? repoId}`,
         fileChanges,
         repo.apiBaseUrl ?? undefined,
       );
@@ -4235,7 +5134,7 @@ export const submitCheckAction = onCall(GIT_CALLABLE_OPTIONS, async request => {
   const ownerId = requireAuth(request);
   const data = request.data as Partial<CheckActionData>;
   const repoId = asString(data.repoId, 'repoId');
-  const provider = asEnum(data.provider, 'provider', ['github', 'gitlab'] as const);
+  const provider = asEnum(data.provider, 'provider', ['github', 'github'] as const);
   const actionType = asEnum(data.actionType, 'actionType', CHECK_ACTION_TYPES);
   const workflowName = asString(data.workflowName, 'workflowName');
   const repo = await ensureRepositoryAccess(repoId, ownerId);
@@ -4413,7 +5312,7 @@ export const submitCheckAction = onCall(GIT_CALLABLE_OPTIONS, async request => {
         executionState: remoteResult.status,
         logsUrl: remoteResult.logsUrl,
         remoteId: remoteResult.remoteId,
-        summary: `${workflowName} triggered from ForgeAI.`,
+        summary: `${workflowName} triggered from CodeCatalystAI.`,
         updatedAt: FieldValue.serverTimestamp(),
       },
       { merge: true },
@@ -4618,3 +5517,219 @@ export const captureTokens = onCall(BASE_CALLABLE_OPTIONS, async request => {
     status: 'captured',
   };
 });
+
+/** Returns subscription state from wallet for the current user (for paywall/UI). */
+export const getSubscriptionState = onCall(BASE_CALLABLE_OPTIONS, async request => {
+  const ownerId = requireAuth(request);
+  const walletRef = db.collection('wallets').doc(ownerId);
+  const snap = await walletRef.get();
+  const data = snap.data();
+  const planId = (data?.planId as PlanId | undefined) ?? 'free';
+  const rawExp = data?.subscriptionExpiresAt;
+  const expiresAt =
+    typeof rawExp === 'number' ? rawExp : typeof rawExp?.toMillis === 'function' ? (rawExp as { toMillis: () => number }).toMillis() : null;
+  const productId = data?.subscriptionProductId as string | undefined ?? null;
+  const isActive = planId === 'free' || (expiresAt != null && expiresAt > Date.now());
+  return {
+    planId,
+    productId,
+    expiresAt,
+    isActive,
+  };
+});
+
+const APPLE_VERIFY_RECEIPT_URL = 'https://buy.itunes.apple.com/verifyReceipt';
+const APPLE_VERIFY_RECEIPT_SANDBOX_URL = 'https://sandbox.itunes.apple.com/verifyReceipt';
+const SUBSCRIPTION_PRODUCT_IDS = new Set<string>([
+  PLANS.pro.productId!,
+  PLANS.power.productId!,
+]);
+const TOKEN_PACK_PRODUCT_IDS = new Set<string>(
+  Object.values(TOP_UP_PACKS).map(p => p.productId),
+);
+
+interface SyncPurchasePayload {
+  platform: string;
+  productId: string;
+  purchaseId?: string;
+  verificationData: string;
+  source?: 'purchase' | 'restore';
+}
+
+/** Validates IAP receipt (iOS/Android) and updates wallet (subscription or token top-up). */
+export const syncPurchase = onCall(IAP_CALLABLE_OPTIONS, async request => {
+  const ownerId = requireAuth(request);
+  const data = request.data as Partial<SyncPurchasePayload>;
+  const platform = asString(data.platform ?? '', 'platform');
+  const productId = asString(data.productId ?? '', 'productId');
+  const verificationData = asString(data.verificationData ?? '', 'verificationData');
+  const source = (data.source === 'restore' ? 'restore' : 'purchase') as 'purchase' | 'restore';
+
+  if (SUBSCRIPTION_PRODUCT_IDS.has(productId)) {
+    if (platform === 'ios') {
+      const sharedSecret = process.env.APPLE_IAP_SHARED_SECRET ?? process.env.APPLE_SHARED_SECRET;
+      if (!sharedSecret?.trim()) {
+        throw new HttpsError(
+          'failed-precondition',
+          'IAP receipt validation is not configured (missing APPLE_IAP_SHARED_SECRET).',
+        );
+      }
+      const verified = await verifyAppleReceipt(verificationData, sharedSecret.trim(), productId);
+      if (!verified.valid) {
+        throw new HttpsError('invalid-argument', verified.error ?? 'Invalid receipt');
+      }
+      const planId = productId === PLANS.power.productId ? 'power' : 'pro';
+      const expiresAtMs = verified.expiresAtMs ?? Date.now() + 30 * 24 * 60 * 60 * 1000;
+      await applySubscriptionToWallet(ownerId, planId as PlanId, productId, expiresAtMs);
+      const plan = PLANS[planId as PlanId];
+      return {
+        planId,
+        productId,
+        expiresAt: expiresAtMs,
+        isActive: true,
+      };
+    }
+    if (platform === 'android') {
+      throw new HttpsError(
+        'failed-precondition',
+        'Android purchase verification is not enabled yet. Configure Play verification before enabling Android IAP in production.',
+      );
+    }
+  }
+
+  if (TOKEN_PACK_PRODUCT_IDS.has(productId)) {
+    const pack = Object.entries(TOP_UP_PACKS).find(([, p]) => p.productId === productId)?.[1];
+    if (pack) {
+      if (platform === 'ios') {
+        const sharedSecret = process.env.APPLE_IAP_SHARED_SECRET ?? process.env.APPLE_SHARED_SECRET;
+        if (!sharedSecret?.trim()) {
+          throw new HttpsError(
+            'failed-precondition',
+            'IAP receipt validation is not configured (missing APPLE_IAP_SHARED_SECRET).',
+          );
+        } else {
+          const verified = await verifyAppleReceipt(verificationData, sharedSecret.trim(), productId);
+          if (!verified.valid) {
+            throw new HttpsError('invalid-argument', verified.error ?? 'Invalid receipt');
+          }
+        }
+      } else if (platform === 'android') {
+        throw new HttpsError(
+          'failed-precondition',
+          'Android purchase verification is not enabled yet. Configure Play verification before enabling Android IAP in production.',
+        );
+      }
+      await addTokensToWallet(ownerId, pack.tokens, productId, source);
+      const walletSnap = await db.collection('wallets').doc(ownerId).get();
+      const current = normalizeWalletState(walletSnap.data());
+      return {
+        planId: (walletSnap.data()?.planId as PlanId) ?? 'free',
+        productId: walletSnap.data()?.subscriptionProductId as string ?? null,
+        expiresAt: (walletSnap.data()?.subscriptionExpiresAt as number) ?? null,
+        isActive: true,
+      };
+    }
+  }
+
+  throw new HttpsError('invalid-argument', `Unknown product: ${productId}`);
+});
+
+async function verifyAppleReceipt(
+  receiptDataBase64: string,
+  sharedSecret: string,
+  expectedProductId: string,
+): Promise<{ valid: boolean; expiresAtMs?: number; error?: string }> {
+  const body = JSON.stringify({
+    'receipt-data': receiptDataBase64,
+    password: sharedSecret,
+    'exclude-old-transactions': true,
+  });
+  let res = await fetch(APPLE_VERIFY_RECEIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  });
+  let json = (await res.json()) as {
+    status: number;
+    latest_receipt_info?: Array<{ expires_date_ms?: string; product_id?: string }>;
+  };
+  if (json.status === 21007) {
+    res = await fetch(APPLE_VERIFY_RECEIPT_SANDBOX_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    json = (await res.json()) as {
+      status: number;
+      latest_receipt_info?: Array<{ expires_date_ms?: string; product_id?: string }>;
+    };
+  }
+  if (json.status !== 0) {
+    return { valid: false, error: `Apple status ${json.status}` };
+  }
+  const latest = json.latest_receipt_info;
+  let expiresAtMs: number | undefined;
+  if (Array.isArray(latest) && latest.length > 0) {
+    const hasExpectedProduct = latest.some(item => item.product_id === expectedProductId);
+    if (!hasExpectedProduct) {
+      return { valid: false, error: 'Receipt does not contain the requested product.' };
+    }
+    const last = latest[latest.length - 1];
+    if (last?.expires_date_ms) {
+      expiresAtMs = parseInt(last.expires_date_ms, 10);
+    }
+  }
+  return { valid: true, expiresAtMs };
+}
+
+async function applySubscriptionToWallet(
+  ownerId: string,
+  planId: PlanId,
+  productId: string,
+  expiresAtMs: number,
+): Promise<void> {
+  const plan = PLANS[planId];
+  const walletRef = db.collection('wallets').doc(ownerId);
+  await walletRef.set(
+    {
+      planId,
+      planName: plan.displayName,
+      monthlyLimit: plan.monthlyIncludedTokens,
+      dailyActionCap: plan.dailyActionCap,
+      subscriptionProductId: productId,
+      subscriptionExpiresAt: expiresAtMs,
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+}
+
+async function addTokensToWallet(
+  ownerId: string,
+  tokens: number,
+  productId: string,
+  source: string,
+): Promise<void> {
+  const walletRef = db.collection('wallets').doc(ownerId);
+  await db.runTransaction(async transaction => {
+    const snap = await transaction.get(walletRef);
+    const current = normalizeWalletState(snap.data());
+    const newBalance = current.balance + tokens;
+    transaction.set(
+      walletRef,
+      {
+        balance: newBalance,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    transaction.set(walletRef.collection('usage').doc(), {
+      actionType: 'top_up',
+      amount: tokens,
+      beforeBalance: current.balance,
+      afterBalance: newBalance,
+      reason: `${source}: ${productId}`,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  });
+}

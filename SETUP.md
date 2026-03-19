@@ -10,15 +10,16 @@
 ## Flutter App
 1. Install dependencies with `flutter pub get`.
 2. Run the mobile app with `flutter run`.
-3. For iOS, make sure the `GoogleService-Info.plist` file is present at the project root and copied into the Xcode target as part of your app setup.
-4. For Android, keep `google-services.json` at the project root and ensure the Firebase Gradle setup is wired before release builds.
-5. In Firebase Authentication, enable:
+3. **iOS device build**: The app uses bundle ID `com.angelonartey.forgeai` so you can register it with your Apple development team. In [Apple Developer](https://developer.apple.com/account) → Identifiers, register an App ID with that bundle ID and enable **Sign in with Apple** and **Push Notifications**. Then in Xcode (`open ios/Runner.xcworkspace`) use **Signing & Capabilities** with your team so Xcode can create a matching provisioning profile. To use Firebase on iOS with this bundle ID, add an iOS app with bundle ID `com.angelonartey.forgeai` in the [Firebase console](https://console.firebase.google.com), download the new `GoogleService-Info.plist`, and replace `ios/Runner/GoogleService-Info.plist` and the root copy.
+4. For iOS, make sure the `GoogleService-Info.plist` file is present at the project root and copied into the Xcode target as part of your app setup.
+5. For Android, keep `google-services.json` at the project root and ensure the Firebase Gradle setup is wired before release builds.
+6. In Firebase Authentication, enable:
    - Anonymous
    - Email/Password
    - Google
    - Apple
    - GitHub
-6. Add your Android SHA-1 fingerprint in Firebase project settings before testing provider sign-in flows on Android devices.
+7. Add your Android SHA-1 fingerprint in Firebase project settings before testing provider sign-in flows on Android devices.
 
 ## Firebase Backend
 1. Change into `functions/`.
@@ -29,17 +30,17 @@
 
 ## Provider Setup
 - GitHub repository sync can reuse the signed-in user's GitHub OAuth access automatically after Firebase GitHub sign-in succeeds.
-- GitHub/GitLab repository sync also supports a repository slug plus access token flow from the app when you want to override or manually provide provider access.
+- GitHub/GitHub repository sync also supports a repository slug plus access token flow from the app when you want to override or manually provide provider access.
 - OpenAI, Anthropic, and Gemini provider hooks are implemented in Cloud Functions with safe fallbacks when provider secrets are missing.
 - For local development, keep provider keys in a git-ignored env file under `functions/`.
 - For production AI execution, configure the relevant provider secrets in your deployed Firebase Functions environment.
 
 ## GitHub Sign-In Setup
 1. In the Firebase console for `forgeai-555ee`, open Authentication, then Sign-in method, then enable the GitHub provider.
-2. In GitHub Developer Settings, create an OAuth App for ForgeAI.
+2. In GitHub Developer Settings, create an OAuth App for CodeCatalystAI.
 3. Use `https://forgeai-555ee.firebaseapp.com/__/auth/handler` as the Authorization callback URL for the GitHub OAuth App.
 4. Copy the GitHub OAuth App client ID and client secret into the GitHub provider settings in Firebase Authentication and save.
-5. Keep `GitHub` enabled in the ForgeAI auth entry screen. The mobile app routes that button through Firebase Auth using `GithubAuthProvider` and stores the resulting GitHub OAuth access for later repository sync.
+5. Keep `GitHub` enabled in the CodeCatalystAI auth entry screen. The mobile app routes that button through Firebase Auth using `GithubAuthProvider` and stores the resulting GitHub OAuth access for later repository sync.
 6. If GitHub sign-in fails with a configuration error in the app, re-check the Firebase GitHub provider toggle, the OAuth client secret, and the callback URL above.
 
 ## Local Development Notes

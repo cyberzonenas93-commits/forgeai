@@ -4,6 +4,7 @@ import 'package:image/image.dart' as img;
 
 void main() {
   final root = Directory.current.path;
+  // Legacy on-disk folder name; rename locally if you prefer (update this path).
   final input = File('$root/ForgeAI_iOS_Icons/icon_1024x1024.png');
   if (!input.existsSync()) {
     stderr.writeln('Missing source icon: ${input.path}');

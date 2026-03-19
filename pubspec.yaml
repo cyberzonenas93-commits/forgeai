@@ -1,5 +1,5 @@
 name: forge_ai
-description: "ForgeAI is a premium mobile-first AI Git client for reviewing, editing, and shipping code."
+description: "CodeCatalystAI is a premium mobile-first AI Git client for reviewing, editing, and shipping code."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -53,6 +53,9 @@ dependencies:
   firebase_messaging: ^16.1.2
   flutter_local_notifications: ^21.0.0
   flutter_markdown: ^0.7.4+1
+  shared_preferences: ^2.3.3
+  in_app_purchase: ^3.2.0
+  share_plus: ^12.0.1
 
 dev_dependencies:
   flutter_test:

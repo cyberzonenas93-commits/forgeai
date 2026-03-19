@@ -1,6 +1,9 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../branding/app_branding.dart';
 import '../theme/app_theme.dart';
 import '../theme/forge_palette.dart';
 
@@ -8,17 +11,18 @@ class ForgeScreen extends StatelessWidget {
   const ForgeScreen({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.fromLTRB(20, 16, 20, 28),
+    this.padding = const EdgeInsets.fromLTRB(24, 20, 24, 32),
     this.useSafeArea = true,
+    this.maxContentWidth = 1200,
   });
 
   final Widget child;
   final EdgeInsets padding;
   final bool useSafeArea;
+  final double maxContentWidth;
 
   @override
   Widget build(BuildContext context) {
-    final content = Padding(padding: padding, child: child);
     return DecoratedBox(
       decoration: const BoxDecoration(
         gradient: ForgeAiTheme.backgroundGradient,
@@ -27,7 +31,32 @@ class ForgeScreen extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           const _ForgeBackdrop(),
-          if (useSafeArea) SafeArea(child: content) else content,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final resolvedPadding = padding.resolve(
+                Directionality.of(context),
+              );
+              final compactHorizontal = constraints.maxWidth < 360
+                  ? 16.0
+                  : constraints.maxWidth < 420
+                  ? 20.0
+                  : resolvedPadding.left;
+              final contentInset = math.max(
+                0,
+                (constraints.maxWidth - maxContentWidth) / 2,
+              );
+              final content = Padding(
+                padding: EdgeInsets.fromLTRB(
+                  compactHorizontal + contentInset,
+                  resolvedPadding.top,
+                  compactHorizontal + contentInset,
+                  resolvedPadding.bottom,
+                ),
+                child: child,
+              );
+              return useSafeArea ? SafeArea(child: content) : content;
+            },
+          ),
         ],
       ),
     );
@@ -38,7 +67,7 @@ class ForgePanel extends StatefulWidget {
   const ForgePanel({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(16),
+    this.padding = const EdgeInsets.all(22),
     this.onTap,
     this.margin,
     this.backgroundColor,
@@ -64,10 +93,24 @@ class _ForgePanelState extends State<ForgePanel> {
   Widget build(BuildContext context) {
     final glowColor = widget.highlight
         ? ForgePalette.glowAccent.withValues(alpha: 0.18)
-        : ForgePalette.glowAccent.withValues(alpha: 0.08);
+        : ForgePalette.primaryAccent.withValues(alpha: 0.06);
     final borderColor = _hovered || _pressed
         ? ForgePalette.glowAccent.withValues(alpha: 0.4)
-        : ForgePalette.border;
+        : ForgePalette.border.withValues(alpha: 0.8);
+    final backgroundColor =
+        widget.backgroundColor ??
+        (widget.highlight
+            ? ForgePalette.surfaceElevated
+            : ForgePalette.surface);
+    final backgroundGradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        backgroundColor.withValues(alpha: 0.98),
+        (widget.highlight ? ForgePalette.surfaceTint : ForgePalette.surface)
+            .withValues(alpha: 0.88),
+      ],
+    );
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() {
@@ -81,21 +124,29 @@ class _ForgePanelState extends State<ForgePanel> {
           duration: const Duration(milliseconds: 180),
           margin: widget.margin,
           decoration: BoxDecoration(
-            color: widget.backgroundColor ?? ForgePalette.surface,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: borderColor),
+            gradient: backgroundGradient,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: borderColor, width: 1),
             boxShadow: [
               BoxShadow(
-                color: glowColor,
-                blurRadius: _hovered ? 20 : 14,
-                spreadRadius: _hovered ? 0 : -6,
+                color: Colors.black.withValues(alpha: 0.22),
+                blurRadius: 34,
+                spreadRadius: -16,
+                offset: const Offset(0, 20),
               ),
+              if (widget.highlight || _hovered)
+                BoxShadow(
+                  color: glowColor,
+                  blurRadius: _hovered ? 28 : 20,
+                  spreadRadius: -10,
+                  offset: const Offset(0, 14),
+                ),
             ],
           ),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(24),
               onTap: widget.onTap,
               onHighlightChanged: (value) {
                 setState(() => _pressed = value);
@@ -134,7 +185,17 @@ class ForgePrimaryButton extends StatelessWidget {
       icon: icon,
       label: label,
     );
-    return expanded ? SizedBox(width: double.infinity, child: button) : button;
+    return _wrapButton(context, button);
+  }
+
+  Widget _wrapButton(BuildContext context, Widget button) {
+    if (expanded) {
+      return SizedBox(width: double.infinity, child: button);
+    }
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: _adaptiveLooseWidth(context)),
+      child: button,
+    );
   }
 }
 
@@ -162,7 +223,17 @@ class ForgeSecondaryButton extends StatelessWidget {
       icon: icon,
       label: label,
     );
-    return expanded ? SizedBox(width: double.infinity, child: button) : button;
+    return _wrapButton(context, button);
+  }
+
+  Widget _wrapButton(BuildContext context, Widget button) {
+    if (expanded) {
+      return SizedBox(width: double.infinity, child: button);
+    }
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: _adaptiveLooseWidth(context)),
+      child: button,
+    );
   }
 }
 
@@ -207,47 +278,62 @@ class _ForgeButtonShellState extends State<_ForgeButtonShell> {
           decoration: BoxDecoration(
             gradient: widget.gradient,
             color: widget.background,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(18),
             border: Border.all(color: widget.borderColor ?? Colors.transparent),
-            boxShadow: widget.shadowColor == null
-                ? null
-                : [
-                    BoxShadow(
-                      color: widget.shadowColor!,
-                      blurRadius: 18,
-                      spreadRadius: -8,
-                    ),
-                  ],
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.16),
+                blurRadius: 18,
+                spreadRadius: -10,
+                offset: const Offset(0, 12),
+              ),
+              if (widget.shadowColor != null)
+                BoxShadow(
+                  color: widget.shadowColor!,
+                  blurRadius: 24,
+                  spreadRadius: -10,
+                  offset: const Offset(0, 14),
+                ),
+            ],
           ),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(18),
               onTap: widget.onPressed,
               onHighlightChanged: (value) {
                 setState(() => _pressed = value);
               },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 13,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (widget.icon != null) ...[
-                      Icon(widget.icon, size: 16, color: widget.foreground),
-                      const SizedBox(width: 8),
-                    ],
-                    Text(
-                      widget.label,
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: widget.foreground,
-                        fontWeight: FontWeight.w600,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 54),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 14,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      if (widget.icon != null) ...[
+                        Icon(widget.icon, size: 16, color: widget.foreground),
+                        const SizedBox(width: 8),
+                      ],
+                      Flexible(
+                        child: Text(
+                          widget.label,
+                          textAlign: TextAlign.center,
+                          softWrap: true,
+                          style: Theme.of(context).textTheme.labelLarge
+                              ?.copyWith(
+                                color: widget.foreground,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -276,7 +362,7 @@ class ForgeSectionHeader extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(title, style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
         Text(
           subtitle,
           style: Theme.of(
@@ -326,32 +412,43 @@ class ForgePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.32)),
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: _adaptiveLooseWidth(context, max: 280, min: 120),
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (icon != null) ...[
-              Icon(icon, size: 13, color: color),
-              const SizedBox(width: 6),
-            ],
-            Flexible(
-              child: Text(
-                label,
-                style: Theme.of(
-                  context,
-                ).textTheme.labelMedium?.copyWith(color: color),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
-              ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: color.withValues(alpha: 0.28)),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.08),
+              blurRadius: 18,
+              spreadRadius: -12,
             ),
           ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 13, color: color),
+                const SizedBox(width: 6),
+              ],
+              Flexible(
+                child: Text(
+                  label,
+                  softWrap: true,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelMedium?.copyWith(color: color),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -377,8 +474,8 @@ class ForgeCodeBlock extends StatelessWidget {
       padding: padding,
       decoration: BoxDecoration(
         color: ForgePalette.surfaceElevated,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: ForgePalette.border),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: ForgePalette.border.withValues(alpha: 0.7)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -428,12 +525,12 @@ class _ForgeAiIndicatorState extends State<ForgeAiIndicator>
   @override
   Widget build(BuildContext context) {
     return Row(
-      mainAxisSize: MainAxisSize.min,
       children: [
         AnimatedBuilder(
           animation: _controller,
           builder: (context, child) {
             return Row(
+              mainAxisSize: MainAxisSize.min,
               children: List.generate(3, (index) {
                 final offset = index / 3;
                 final progress = ((_controller.value - offset) % 1).clamp(0, 1);
@@ -462,11 +559,13 @@ class _ForgeAiIndicatorState extends State<ForgeAiIndicator>
           },
         ),
         const SizedBox(width: 10),
-        Text(
-          widget.label,
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: ForgePalette.textSecondary),
+        Expanded(
+          child: Text(
+            widget.label,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: ForgePalette.textSecondary),
+          ),
         ),
       ],
     );
@@ -529,29 +628,47 @@ class _ForgeShimmerBlockState extends State<ForgeShimmerBlock>
 }
 
 class ForgeBrandMark extends StatelessWidget {
-  const ForgeBrandMark({super.key, this.size = 68, this.showText = false});
+  const ForgeBrandMark({
+    super.key,
+    this.size = 68,
+    this.showText = false,
+
+    /// When true, the mark is drawn with [BoxFit.contain] and no rounded clip or
+    /// card shadow so a transparent PNG blends with the screen (e.g. splash).
+    this.blendWithBackground = false,
+  });
 
   final double size;
   final bool showText;
+  final bool blendWithBackground;
 
   @override
   Widget build(BuildContext context) {
-    final brand = Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(size * 0.28),
-        boxShadow: [
-          BoxShadow(
-            color: ForgePalette.glowAccent.withValues(alpha: 0.18),
-            blurRadius: 24,
-            spreadRadius: -6,
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Image.asset('assets/branding/forge_mark.png', fit: BoxFit.cover),
+    final Widget markImage = Image.asset(
+      'assets/branding/forge_mark.png',
+      fit: blendWithBackground ? BoxFit.contain : BoxFit.cover,
+      filterQuality: FilterQuality.high,
+      gaplessPlayback: true,
     );
+
+    final Widget brand = blendWithBackground
+        ? SizedBox(width: size, height: size, child: markImage)
+        : Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(size * 0.28),
+              boxShadow: [
+                BoxShadow(
+                  color: ForgePalette.glowAccent.withValues(alpha: 0.18),
+                  blurRadius: 24,
+                  spreadRadius: -6,
+                ),
+              ],
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: markImage,
+          );
 
     if (!showText) {
       return brand;
@@ -564,16 +681,13 @@ class ForgeBrandMark extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'ForgeAI',
-              overflow: TextOverflow.ellipsis,
+              kAppDisplayName,
               style: Theme.of(
                 context,
               ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             Text(
               'Control your code from anywhere',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
@@ -618,57 +732,50 @@ class ForgeMetricTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ForgePanel(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(18),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 36,
-            height: 36,
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(12),
+              color: accent.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(icon, color: accent, size: 18),
+            child: Icon(icon, color: accent, size: 20),
           ),
-          const SizedBox(height: 12),
-          Flexible(
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    value,
-                    style: Theme.of(
-                      context,
-                    ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    label,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelLarge,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    detail,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
+          const SizedBox(height: 14),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                value,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
               ),
-            ),
+              const SizedBox(height: 4),
+              Text(label, style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 4),
+              Text(detail, style: Theme.of(context).textTheme.bodySmall),
+            ],
           ),
         ],
       ),
     );
   }
+}
+
+double _adaptiveLooseWidth(
+  BuildContext context, {
+  double max = 320,
+  double min = 160,
+}) {
+  final screenWidth = MediaQuery.sizeOf(context).width;
+  return math.max(min, math.min(max, screenWidth - 48));
 }
 
 class _ForgeBackdrop extends StatelessWidget {
@@ -686,20 +793,29 @@ class _ForgeBackdrop extends StatelessWidget {
               ),
             ),
           ),
+          Positioned.fill(child: CustomPaint(painter: _ForgeGridPainter())),
           Positioned(
-            top: -80,
-            right: -20,
+            top: -60,
+            right: -40,
             child: _GlowOrb(
-              color: ForgePalette.glowAccent.withValues(alpha: 0.12),
-              size: 220,
+              color: ForgePalette.glowAccent.withValues(alpha: 0.16),
+              size: 240,
             ),
           ),
           Positioned(
-            top: 180,
-            left: -60,
+            top: 200,
+            left: -80,
             child: _GlowOrb(
-              color: ForgePalette.primaryAccent.withValues(alpha: 0.08),
-              size: 180,
+              color: ForgePalette.primaryAccent.withValues(alpha: 0.10),
+              size: 200,
+            ),
+          ),
+          Positioned(
+            bottom: -120,
+            right: -20,
+            child: _GlowOrb(
+              color: ForgePalette.sparkAccent.withValues(alpha: 0.12),
+              size: 300,
             ),
           ),
         ],
@@ -725,4 +841,41 @@ class _GlowOrb extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ForgeGridPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final horizontalPaint = Paint()
+      ..color = ForgePalette.border.withValues(alpha: 0.09)
+      ..strokeWidth = 1;
+    const step = 46.0;
+
+    for (double y = 0; y <= size.height; y += step) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), horizontalPaint);
+    }
+
+    for (double x = 0; x <= size.width; x += step) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), horizontalPaint);
+    }
+
+    final diagonalPaint = Paint()
+      ..color = ForgePalette.glowAccent.withValues(alpha: 0.035)
+      ..strokeWidth = 1;
+    const diagonalStep = 140.0;
+    for (
+      double start = -size.height;
+      start <= size.width;
+      start += diagonalStep
+    ) {
+      canvas.drawLine(
+        Offset(start, 0),
+        Offset(start + size.height, size.height),
+        diagonalPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

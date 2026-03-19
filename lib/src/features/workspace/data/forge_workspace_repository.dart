@@ -7,7 +7,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/config/forge_release_config.dart';
+import '../../../core/branding/app_branding.dart';
 import '../../../shared/forge_models.dart';
 import '../../auth/domain/auth_account.dart';
 import '../../auth/domain/auth_provider_kind.dart';
@@ -22,14 +22,9 @@ class ForgeWorkspaceRepository {
 
   final FirebaseFirestore _firestore;
   final FirebaseFunctions _functions;
-  static const double _testWalletBalance = 999999999;
-
-  bool get _hasUnlimitedTestWallet =>
-      ForgeReleaseConfig.environment.toLowerCase() != 'production';
 
   Future<void> ensureBootstrap(AuthAccount account) async {
     final userRef = _firestore.collection('users').doc(account.id);
-    final walletRef = _firestore.collection('wallets').doc(account.id);
     final connectionRef = userRef.collection('connections');
     final notificationPreferencesRef = userRef
         .collection('notificationPreferences')
@@ -58,24 +53,8 @@ class ForgeWorkspaceRepository {
       }, SetOptions(merge: true));
     }
 
-    try {
-      await walletRef.set({
-        'planName': 'Pro mobile review',
-        'balance': 1280,
-        'monthlyLimit': 2000,
-        'monthlyAllowance': 2000,
-        'monthlyUsed': 0,
-        'spentThisWeek': 0,
-        'nextReset': 'Mon, 09:00',
-        'currency': 'tokens',
-        'currencySymbol': 'tokens',
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    } on FirebaseException catch (error) {
-      debugPrint(
-        'ForgeAI wallet bootstrap skipped: ${error.code} ${error.message ?? ''}',
-      );
-    }
+    // Wallet is created and updated by the backend (syncUserProfile / updateWalletState).
+    // Only the allowlisted email gets unlimited; others use paywall/subscription.
 
     await notificationPreferencesRef.set({
       ...ForgeNotificationPreferences.defaults.toMap(),
@@ -208,21 +187,13 @@ class ForgeWorkspaceRepository {
         });
   }
 
+  /// Wallet state is owned by the backend. Only the allowlisted user
+  /// (e.g. cyberzonenas93@gmail.com) gets unlimited; others use paywall/subscription.
   Stream<ForgeTokenWallet> watchWallet(String ownerId) {
     return _firestore.collection('wallets').doc(ownerId).snapshots().map((doc) {
       final data = doc.data() ?? const <String, dynamic>{};
-      if (_hasUnlimitedTestWallet) {
-        return const ForgeTokenWallet(
-          planName: 'Test Unlimited',
-          balance: _testWalletBalance,
-          monthlyAllowance: _testWalletBalance,
-          spentThisWeek: 0,
-          nextReset: 'Testing mode',
-          currencySymbol: 'tokens',
-        );
-      }
       return ForgeTokenWallet(
-        planName: (data['planName'] as String?) ?? 'Pro mobile review',
+        planName: (data['planName'] as String?) ?? 'Free',
         balance: _asDouble(data['balance']),
         monthlyAllowance: _asDouble(data['monthlyAllowance']) == 0
             ? _asDouble(data['monthlyLimit'])
@@ -387,6 +358,143 @@ class ForgeWorkspaceRepository {
     );
   }
 
+  Future<void> createFileDraft({
+    required String ownerId,
+    required String repoId,
+    required String filePath,
+    String content = '',
+  }) async {
+    final normalizedPath = _normalizeRepoPath(filePath);
+    final fileRef = _fileRef(repoId, normalizedPath);
+    await fileRef.set({
+      'path': normalizedPath,
+      'language': _languageFromPath(normalizedPath),
+      'content': content,
+      'baseContent': content,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    await _writeActivity(
+      ownerId: ownerId,
+      kind: 'repo',
+      message: 'Created $normalizedPath.',
+      accent: 'repo',
+    );
+  }
+
+  Future<void> createFolderDraft({
+    required String ownerId,
+    required String repoId,
+    required String folderPath,
+  }) async {
+    final normalizedFolder = _normalizeRepoPath(folderPath, isFolder: true);
+    final markerPath = '$normalizedFolder.keep';
+    final markerRef = _fileRef(repoId, markerPath);
+    await markerRef.set({
+      'path': markerPath,
+      'language': 'Text',
+      'content': '',
+      'baseContent': '',
+      'updatedAt': FieldValue.serverTimestamp(),
+      'isFolderMarker': true,
+    }, SetOptions(merge: true));
+    await _writeActivity(
+      ownerId: ownerId,
+      kind: 'repo',
+      message: 'Created folder $normalizedFolder.',
+      accent: 'repo',
+    );
+  }
+
+  Future<void> renamePath({
+    required String ownerId,
+    required String repoId,
+    required String oldPath,
+    required String newPath,
+    required bool isFolder,
+  }) async {
+    final oldNormalized = _normalizeRepoPath(oldPath, isFolder: isFolder);
+    final newNormalized = _normalizeRepoPath(newPath, isFolder: isFolder);
+    if (oldNormalized == newNormalized) {
+      return;
+    }
+    final filesRef = _firestore
+        .collection('repositories')
+        .doc(repoId)
+        .collection('files');
+    final snapshot = await filesRef.get();
+    final batch = _firestore.batch();
+    var changed = 0;
+    for (final doc in snapshot.docs) {
+      final path = (doc.data()['path'] as String?) ?? '';
+      final matches = isFolder
+          ? path.startsWith(oldNormalized)
+          : path == oldNormalized;
+      if (!matches) {
+        continue;
+      }
+      final nextPath = isFolder
+          ? '$newNormalized${path.substring(oldNormalized.length)}'
+          : newNormalized;
+      final nextRef = filesRef.doc(_safeDocId(nextPath));
+      final payload = <String, dynamic>{...doc.data()};
+      payload['path'] = nextPath;
+      payload['updatedAt'] = FieldValue.serverTimestamp();
+      batch.set(nextRef, payload, SetOptions(merge: true));
+      if (nextRef.path != doc.reference.path) {
+        batch.delete(doc.reference);
+      }
+      changed += 1;
+    }
+    if (changed == 0) {
+      return;
+    }
+    await batch.commit();
+    await _writeActivity(
+      ownerId: ownerId,
+      kind: 'repo',
+      message:
+          'Renamed ${isFolder ? 'folder' : 'file'} $oldNormalized to $newNormalized.',
+      accent: 'repo',
+    );
+  }
+
+  Future<void> deletePath({
+    required String ownerId,
+    required String repoId,
+    required String path,
+    required bool isFolder,
+  }) async {
+    final normalized = _normalizeRepoPath(path, isFolder: isFolder);
+    final filesRef = _firestore
+        .collection('repositories')
+        .doc(repoId)
+        .collection('files');
+    final snapshot = await filesRef.get();
+    final batch = _firestore.batch();
+    var deleted = 0;
+    for (final doc in snapshot.docs) {
+      final filePath = (doc.data()['path'] as String?) ?? '';
+      final matches = isFolder
+          ? filePath.startsWith(normalized)
+          : filePath == normalized;
+      if (!matches) {
+        continue;
+      }
+      batch.delete(doc.reference);
+      deleted += 1;
+    }
+    if (deleted == 0) {
+      return;
+    }
+    await batch.commit();
+    await _writeActivity(
+      ownerId: ownerId,
+      kind: 'repo',
+      message: 'Deleted ${isFolder ? 'folder' : 'file'} $normalized.',
+      accent: 'repo',
+    );
+  }
+
   Future<ForgeChangeRequest> runAiAction({
     required String ownerId,
     required String repoId,
@@ -497,7 +605,7 @@ class ForgeWorkspaceRepository {
           'provider': draft.provider,
           'account': draft.repository.split('/').first,
           'scopeSummary':
-              'Repos, pull requests, merge requests, commits, and checks',
+              'Repos, pull requests, commits, and checks',
           'status': 'connected',
           'lastChecked': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
@@ -508,6 +616,68 @@ class ForgeWorkspaceRepository {
       message: 'Connected ${draft.repository} (${draft.provider}).',
       accent: 'repo',
     );
+  }
+
+  Future<ForgeCreateAiProjectResult> createProjectRepository({
+    required String ownerId,
+    required String provider,
+    required String repoName,
+    required String idea,
+    String? stackHint,
+    bool isPrivate = true,
+    String? namespace,
+    String? accessToken,
+    String? apiBaseUrl,
+  }) async {
+    final callable = _functions.httpsCallable('createProjectRepository');
+    final result = await callable.call(<String, dynamic>{
+      'provider': provider,
+      'repoName': repoName.trim(),
+      'idea': idea.trim(),
+      if (stackHint != null && stackHint.trim().isNotEmpty)
+        'stackHint': stackHint.trim(),
+      'isPrivate': isPrivate,
+      if (namespace != null && namespace.trim().isNotEmpty)
+        'namespace': namespace.trim(),
+      if (accessToken != null && accessToken.trim().isNotEmpty)
+        'accessToken': accessToken.trim(),
+      if (apiBaseUrl != null && apiBaseUrl.trim().isNotEmpty)
+        'apiBaseUrl': apiBaseUrl.trim(),
+    });
+    final raw = result.data;
+    if (raw is! Map) {
+      throw const FormatException('createProjectRepository: invalid response');
+    }
+    final parsed = ForgeCreateAiProjectResult.fromCallableData(
+      Map<Object?, Object?>.from(raw),
+    );
+
+    final slash = parsed.fullName.indexOf('/');
+    if (slash > 0) {
+      final account = parsed.fullName.substring(0, slash);
+      await _firestore
+          .collection('users')
+          .doc(ownerId)
+          .collection('connections')
+          .doc(provider)
+          .set({
+            'provider': provider,
+            'account': account,
+            'scopeSummary':
+                'Repos, pull requests, commits, and checks',
+            'status': 'connected',
+            'lastChecked': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+    }
+
+    await _writeActivity(
+      ownerId: ownerId,
+      kind: 'repo',
+      message:
+          'Created ${parsed.fullName} with AI scaffold (${parsed.fileCount} files).',
+      accent: 'repo',
+    );
+    return parsed;
   }
 
   Future<List<ForgeAvailableRepository>> listProviderRepositories({
@@ -536,24 +706,37 @@ class ForgeWorkspaceRepository {
         .map((item) {
           final owner = (item['owner'] as String?)?.trim() ?? '';
           final name = (item['name'] as String?)?.trim() ?? '';
-          final fullNameRaw = (item['fullName'] as String?)?.trim() ??
+          final fullNameRaw =
+              (item['fullName'] as String?)?.trim() ??
               (item['full_name'] as String?)?.trim() ??
               (owner.isNotEmpty && name.isNotEmpty ? '$owner/$name' : '');
-          final fullName = fullNameRaw.isNotEmpty ? fullNameRaw : (owner.isNotEmpty && name.isNotEmpty ? '$owner/$name' : '');
+          final fullName = fullNameRaw.isNotEmpty
+              ? fullNameRaw
+              : (owner.isNotEmpty && name.isNotEmpty ? '$owner/$name' : '');
           return ForgeAvailableRepository(
             provider: (item['provider'] as String?) ?? provider,
             owner: owner,
             name: name,
             fullName: fullName,
-            defaultBranch: (item['defaultBranch'] as String?)?.trim() ??
+            defaultBranch:
+                (item['defaultBranch'] as String?)?.trim() ??
                 (item['default_branch'] as String?)?.trim() ??
                 'main',
             description: (item['description'] as String?)?.trim(),
-            htmlUrl: (item['htmlUrl'] as String?)?.trim() ?? (item['html_url'] as String?)?.trim(),
-            isPrivate: item['isPrivate'] as bool? ?? item['is_private'] as bool? ?? true,
+            htmlUrl:
+                (item['htmlUrl'] as String?)?.trim() ??
+                (item['html_url'] as String?)?.trim(),
+            isPrivate:
+                item['isPrivate'] as bool? ??
+                item['is_private'] as bool? ??
+                true,
           );
         })
-        .where((item) => item.fullName.isNotEmpty || (item.owner.isNotEmpty && item.name.isNotEmpty))
+        .where(
+          (item) =>
+              item.fullName.isNotEmpty ||
+              (item.owner.isNotEmpty && item.name.isNotEmpty),
+        )
         .toList();
   }
 
@@ -562,12 +745,13 @@ class ForgeWorkspaceRepository {
     await callable.call({'repoId': repoId});
   }
 
-  Future<String> askRepo({
+  Future<ForgeAskRepoResult> askRepo({
     String? repoId,
     required String prompt,
     String provider = 'openai',
     List<ForgePromptMessage> history = const <ForgePromptMessage>[],
-    List<ForgePromptMediaAttachment> media = const <ForgePromptMediaAttachment>[],
+    List<ForgePromptMediaAttachment> media =
+        const <ForgePromptMediaAttachment>[],
     bool dangerMode = false,
   }) async {
     final callable = _functions.httpsCallable('askRepo');
@@ -577,24 +761,62 @@ class ForgeWorkspaceRepository {
       'provider': provider,
       if (history.isNotEmpty)
         'history': history
-            .map((message) => {
-                  'role': message.role,
-                  'text': message.text,
-                })
+            .map((message) => {'role': message.role, 'text': message.text})
             .toList(),
       if (media.isNotEmpty)
         'media': media
-            .map((m) => {
-                  'fileName': m.fileName,
-                  'mimeType': m.mimeType,
-                  'dataBase64': m.dataBase64,
-                })
+            .map(
+              (m) => {
+                'fileName': m.fileName,
+                'mimeType': m.mimeType,
+                'dataBase64': m.dataBase64,
+              },
+            )
             .toList(),
       'dangerMode': dangerMode,
     });
     final data = result.data;
     final reply = data['reply'];
-    return reply is String ? reply : '';
+    final trace = data['trace'];
+    final inspectedFiles = <String>[];
+    final plannedEdits = <ForgePromptPlannedEdit>[];
+    if (trace is Map<Object?, Object?>) {
+      final traceMap = trace.map((key, value) => MapEntry('$key', value));
+      final inspectedRaw = traceMap['inspectedFiles'];
+      if (inspectedRaw is List) {
+        for (final item in inspectedRaw) {
+          if (item is String && item.trim().isNotEmpty) {
+            inspectedFiles.add(item.trim());
+          }
+        }
+      }
+      final editsRaw = traceMap['plannedEdits'];
+      if (editsRaw is List) {
+        for (final item in editsRaw) {
+          if (item is Map) {
+            final map = item.map((key, value) => MapEntry('$key', value));
+            final path = (map['path'] as String?)?.trim() ?? '';
+            final action = (map['action'] as String?)?.trim() ?? 'modify';
+            final rationale = (map['rationale'] as String?)?.trim() ?? '';
+            if (path.isEmpty) {
+              continue;
+            }
+            plannedEdits.add(
+              ForgePromptPlannedEdit(
+                path: path,
+                action: action,
+                rationale: rationale,
+              ),
+            );
+          }
+        }
+      }
+    }
+    return ForgeAskRepoResult(
+      reply: reply is String ? reply : '',
+      inspectedFiles: inspectedFiles,
+      plannedEdits: plannedEdits,
+    );
   }
 
   Future<void> submitGitAction({
@@ -626,7 +848,9 @@ class ForgeWorkspaceRepository {
 
   Future<List<ForgeRepoWorkflow>> listRepoWorkflows(String repoId) async {
     final callable = _functions.httpsCallable('listRepoWorkflows');
-    final result = await callable.call<Map<String, dynamic>>({'repoId': repoId});
+    final result = await callable.call<Map<String, dynamic>>({
+      'repoId': repoId,
+    });
     final data = result.data;
     final list = data['workflows'] as List<dynamic>? ?? const [];
     return list
@@ -755,17 +979,13 @@ class ForgeWorkspaceRepository {
     final lastSync = _asDateTime(data['lastSyncedAt']);
     final branchesRaw = data['branches'];
     final branchesList = branchesRaw is List
-        ? (branchesRaw)
-            .map((e) => e is String ? e : e.toString())
-            .toList()
+        ? (branchesRaw).map((e) => e is String ? e : e.toString()).toList()
         : <String>[];
     return ForgeRepository(
       id: doc.id,
       name: name,
       owner: owner,
-      provider: (data['provider'] as String?) == 'gitlab'
-          ? ForgeProvider.gitlab
-          : ForgeProvider.github,
+      provider: ForgeProvider.github,
       language: (data['language'] as String?) ?? 'Mixed',
       description:
           (data['description'] as String?) ??
@@ -784,6 +1004,7 @@ class ForgeWorkspaceRepository {
       stars: (data['stars'] as num?)?.toInt() ?? 0,
       isProtected: (data['isProtected'] as bool?) ?? false,
       branches: branchesList,
+      htmlUrl: (data['htmlUrl'] as String?)?.trim(),
     );
   }
 
@@ -792,9 +1013,7 @@ class ForgeWorkspaceRepository {
   ) {
     final data = doc.data();
     return ForgeConnection(
-      provider: (data['provider'] as String?) == 'gitlab'
-          ? ForgeProvider.gitlab
-          : ForgeProvider.github,
+      provider: ForgeProvider.github,
       account: (data['account'] as String?) ?? doc.id,
       scopeSummary:
           (data['scopeSummary'] as String?) ??
@@ -831,7 +1050,7 @@ class ForgeWorkspaceRepository {
       status: status,
       summary:
           (data['summary'] as String?) ??
-          'Queued from ForgeAI for explicit CI execution.',
+          'Queued from $kAppDisplayName for explicit CI execution.',
       duration: _formatTimestamp(startedAt),
       logsAvailable:
           ((data['logs'] as List<dynamic>?)?.isNotEmpty ?? false) ||
@@ -931,10 +1150,14 @@ class ForgeWorkspaceRepository {
       final path = (data['path'] as String?) ?? Uri.decodeComponent(doc.id);
       final parts = path.split('/');
       var folders = root;
+      var folderPrefix = '';
       for (var index = 0; index < parts.length; index++) {
         final segment = parts[index];
         final isLeaf = index == parts.length - 1;
         if (isLeaf) {
+          if (segment == '.keep') {
+            break;
+          }
           folders.putIfAbsent(
             segment,
             () => _MutableFolder.file(
@@ -955,10 +1178,14 @@ class ForgeWorkspaceRepository {
             ),
           );
         } else {
+          final nextFolderPath = folderPrefix.isEmpty
+              ? '$segment/'
+              : '$folderPrefix$segment/';
           final folder = folders.putIfAbsent(
             segment,
-            () => _MutableFolder.folder(segment, '$segment/'),
+            () => _MutableFolder.folder(segment, nextFolderPath),
           );
+          folderPrefix = nextFolderPath;
           folders = folder.children;
         }
       }
@@ -1100,6 +1327,26 @@ class ForgeWorkspaceRepository {
 
   String _safeDocId(String value) {
     return Uri.encodeComponent(value).replaceAll('.', '%2E');
+  }
+
+  String _normalizeRepoPath(String input, {bool isFolder = false}) {
+    final trimmed = input.trim().replaceAll('\\', '/');
+    final parts = trimmed
+        .split('/')
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty && part != '.')
+        .toList();
+    if (parts.any((part) => part == '..')) {
+      throw ArgumentError('Path cannot contain "..".');
+    }
+    final joined = parts.join('/');
+    if (joined.isEmpty) {
+      throw ArgumentError('Path cannot be empty.');
+    }
+    if (isFolder) {
+      return joined.endsWith('/') ? joined : '$joined/';
+    }
+    return joined;
   }
 
   List<ForgeDiffLine> _buildFallbackDiffLines(

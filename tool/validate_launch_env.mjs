@@ -32,7 +32,7 @@ if (json) {
   process.exit(strict && summary.errors.length > 0 ? 1 : 0);
 }
 
-console.log('ForgeAI launch environment validation');
+console.log('CodeCatalystAI launch environment validation');
 console.log(`Project: ${context.projectId ?? 'missing'}`);
 console.log(`GitHub auth callback: ${context.callbacks.githubAuth ?? 'missing'}`);
 printList('Required providers', context.requiredProviders);

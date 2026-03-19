@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/branding/app_branding.dart';
 import '../../../core/widgets/forge_ui.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../auth/domain/auth_account.dart';
@@ -20,6 +21,15 @@ class AccountSettingsScreen extends StatelessWidget {
         final account = state.account;
         return Scaffold(
           backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back_rounded),
+              onPressed: () => Navigator.of(context).maybePop(),
+            ),
+            title: const Text('Account'),
+          ),
           body: ForgeScreen(
             child: ListView(
               children: [
@@ -80,7 +90,7 @@ class AccountSettingsScreen extends StatelessWidget {
                 const SizedBox(height: 12),
                 _ActionCard(
                   title: 'Sign out',
-                  subtitle: 'Leave the current ForgeAI session.',
+                  subtitle: 'Leave the current $kAppDisplayName session.',
                   onPressed: state.isBusy ? null : controller.signOut,
                 ),
               ],

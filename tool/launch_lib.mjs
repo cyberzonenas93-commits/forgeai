@@ -10,7 +10,6 @@ export const repoRoot = path.resolve(__dirname, '..');
 
 export const providerSecretMap = {
   github: ['GITHUB_TOKEN', 'GITHUB_APP_TOKEN'],
-  gitlab: ['GITLAB_TOKEN'],
   openai: ['OPENAI_API_KEY'],
   anthropic: ['ANTHROPIC_API_KEY'],
   gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
@@ -164,7 +163,7 @@ export function collectLaunchContext() {
   const requiredProviders = parseProviderList(
     env.FORGEAI_REQUIRED_PROVIDERS ??
       (appEnv === 'production'
-        ? 'github,gitlab,openai,anthropic,gemini'
+        ? 'github,openai,anthropic,gemini'
         : appEnv === 'beta'
           ? 'github,openai'
           : 'openai'),
@@ -237,13 +236,6 @@ export function collectLaunchContext() {
         env.SMOKE_TEST_BRANCH_PREFIX ??
         env.FORGEAI_SMOKE_GITHUB_BRANCH_PREFIX ??
         'beta/smoke/',
-      gitlabRepo:
-        env.SMOKE_TEST_GITLAB_REPO ?? env.FORGEAI_SMOKE_GITLAB_REPO ?? '',
-      gitlabBranchPrefix:
-        env.SMOKE_TEST_GITLAB_BRANCH_PREFIX ??
-        env.SMOKE_TEST_BRANCH_PREFIX ??
-        env.FORGEAI_SMOKE_GITLAB_BRANCH_PREFIX ??
-        'beta/smoke/',
     },
   };
 }
@@ -305,9 +297,6 @@ export function summarizeValidation(context) {
   }
   if (!context.smoke.githubRepo) {
     warnings.push('GitHub smoke-test repository is not configured.');
-  }
-  if (!context.smoke.gitlabRepo) {
-    warnings.push('GitLab smoke-test repository is not configured.');
   }
   if (!context.smoke.firebaseUserEmail) {
     warnings.push('Firebase smoke-test user email is not configured.');

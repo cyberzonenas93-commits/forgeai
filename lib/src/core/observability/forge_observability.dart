@@ -1,11 +1,11 @@
 import 'dart:async';
 
 import 'package:firebase_analytics/firebase_analytics.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/widgets.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../firebase/forge_firebase_readiness.dart';
 import '../config/forge_runtime_config.dart';
 
 class ForgeObservability {
@@ -26,7 +26,7 @@ class ForgeObservability {
   }
 
   Future<void> bootstrap({required ForgeRuntimeConfig runtime}) async {
-    if (Firebase.apps.isEmpty) {
+    if (!forgeHasInitializedFirebaseApp()) {
       return;
     }
 
@@ -34,14 +34,20 @@ class ForgeObservability {
     if (runtime.enableAnalytics) {
       _analytics = FirebaseAnalytics.instance;
       await _analytics!.setAnalyticsCollectionEnabled(true);
-      await _analytics!.setUserProperty(name: 'release_channel', value: runtime.releaseChannel);
+      await _analytics!.setUserProperty(
+        name: 'release_channel',
+        value: runtime.releaseChannel,
+      );
       await _analytics!.setUserProperty(name: 'app_env', value: runtime.appEnv);
     }
 
     if (runtime.enableCrashlytics) {
       _crashlytics = FirebaseCrashlytics.instance;
       await _crashlytics!.setCrashlyticsCollectionEnabled(true);
-      await _crashlytics!.setCustomKey('release_channel', runtime.releaseChannel);
+      await _crashlytics!.setCustomKey(
+        'release_channel',
+        runtime.releaseChannel,
+      );
       await _crashlytics!.setCustomKey('app_env', runtime.appEnv);
       await _crashlytics!.setCustomKey(
         'app_version',
@@ -102,10 +108,7 @@ class ForgeObservability {
   }) async {
     await recordEvent(
       'forgeai_nonfatal',
-      parameters: <String, Object?>{
-        'reason': reason,
-        ...context,
-      },
+      parameters: <String, Object?>{'reason': reason, ...context},
     );
 
     final crashlytics = _crashlytics;
@@ -130,10 +133,7 @@ class ForgeObservability {
   }) {
     return recordEvent(
       '${_sanitizeName(name)}_success',
-      parameters: <String, Object?>{
-        'duration_ms': durationMs,
-        ...context,
-      },
+      parameters: <String, Object?>{'duration_ms': durationMs, ...context},
     );
   }
 
@@ -156,10 +156,7 @@ class ForgeObservability {
       error,
       stackTrace,
       reason: name,
-      context: <String, Object?>{
-        'duration_ms': durationMs,
-        ...context,
-      },
+      context: <String, Object?>{'duration_ms': durationMs, ...context},
     );
   }
 

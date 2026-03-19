@@ -15,7 +15,7 @@ node ./tool/flutter_with_launch_env.mjs run -d <device-id>
 - Sign in with GitHub
 - OAuth return to the app after Safari / ASWebAuthenticationSession
 - Connect GitHub repository
-- Connect GitLab repository token flow
+- Connect GitHub repository token flow
 - Open file tree and editor
 - Save manual code edit
 - Generate AI diff

@@ -5,9 +5,16 @@ import '../../shared/widgets/forge_widgets.dart';
 import '../workspace/application/forge_workspace_controller.dart';
 
 class WalletScreen extends StatelessWidget {
-  const WalletScreen({super.key, required this.controller});
+  const WalletScreen({
+    super.key,
+    required this.controller,
+    this.onUpgrade,
+    this.onGetTokens,
+  });
 
   final ForgeWorkspaceController controller;
+  final VoidCallback? onUpgrade;
+  final VoidCallback? onGetTokens;
 
   @override
   Widget build(BuildContext context) {
@@ -20,8 +27,22 @@ class WalletScreen extends StatelessWidget {
             ? 0.0
             : (wallet.spentThisWeek / wallet.monthlyAllowance).clamp(0.0, 1.0);
 
+        final canPop = Navigator.of(context).canPop();
+
         return Scaffold(
           backgroundColor: Colors.transparent,
+          appBar: canPop
+              ? AppBar(
+                  backgroundColor: Colors.transparent,
+                  elevation: 0,
+                  scrolledUnderElevation: 0,
+                  leading: IconButton(
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    tooltip: 'Back',
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                )
+              : null,
           body: ForgeScreen(
             child: ListView(
               children: [
@@ -50,27 +71,52 @@ class WalletScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        '${wallet.spentThisWeek.toInt()} used this week • resets ${wallet.nextReset}',
+                        '${wallet.spentThisWeek.toInt()} used this period • next refresh ${wallet.nextReset}',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
+                      if (onUpgrade != null || onGetTokens != null) ...[
+                        const SizedBox(height: 16),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (onUpgrade != null)
+                              ForgeSecondaryButton(
+                                label: 'Upgrade plan',
+                                icon: Icons.workspace_premium_rounded,
+                                onPressed: onUpgrade,
+                                expanded: true,
+                              ),
+                            if (onUpgrade != null && onGetTokens != null)
+                              const SizedBox(height: 12),
+                            if (onGetTokens != null)
+                              ForgePrimaryButton(
+                                label: 'Get tokens',
+                                icon: Icons.add_rounded,
+                                onPressed: onGetTokens,
+                                expanded: true,
+                              ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ForgeMetricTile(
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final useSingleColumn = constraints.maxWidth < 640;
+                    final tileWidth = useSingleColumn
+                        ? constraints.maxWidth
+                        : (constraints.maxWidth - 12) / 2;
+                    final tiles = [
+                      ForgeMetricTile(
                         label: 'Monthly allowance',
                         value: '${wallet.monthlyAllowance.toInt()}',
                         detail: wallet.planName,
                         icon: Icons.shield_outlined,
                         accent: ForgePalette.glowAccent,
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ForgeMetricTile(
+                      ForgeMetricTile(
                         label: 'Average task',
                         value: logs.isEmpty
                             ? '0'
@@ -79,8 +125,16 @@ class WalletScreen extends StatelessWidget {
                         icon: Icons.auto_awesome_rounded,
                         accent: ForgePalette.success,
                       ),
-                    ),
-                  ],
+                    ];
+                    return Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        for (final tile in tiles)
+                          SizedBox(width: tileWidth, child: tile),
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 16),
                 ForgePanel(

@@ -42,4 +42,8 @@ class ForgeReleaseConfig {
   static const String betaChannel = _betaChannelPrimary == ''
       ? _betaChannelLegacy
       : _betaChannelPrimary;
+  static const bool enableIapInDebug = bool.fromEnvironment(
+    'FORGEAI_ENABLE_IAP_DEBUG',
+    defaultValue: false,
+  );
 }

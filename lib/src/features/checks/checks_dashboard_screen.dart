@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/branding/app_branding.dart';
 import '../../core/theme/forge_palette.dart';
 import '../../shared/forge_models.dart';
 import '../../shared/widgets/forge_widgets.dart';
@@ -37,7 +38,7 @@ class _ChecksDashboardScreenState extends State<ChecksDashboardScreen> {
                 'Connect a repository and run checks to see workflow output here.',
               ]
             : <String>[
-                '[ForgeAI] ${selectedJob.name}',
+                '[$kAppDisplayName] ${selectedJob.name}',
                 '[Status] ${selectedJob.summary}',
                 '[Duration] ${selectedJob.duration}',
                 if (selectedJob.logsAvailable)

@@ -1,11 +1,13 @@
 # Deploy Firebase Cloud Functions when code is pushed.
 # Used by "Deploy via Git" in the app: commit and push, then this workflow deploys.
 #
-# Setup:
-# 1. Create a Firebase CI token: firebase login:ci
-# 2. In this repo: Settings → Secrets and variables → Actions → New repository secret
-#    Name: FIREBASE_TOKEN   Value: <the token>
-# 3. Push to main (or the branch below) to deploy.
+# Setup (choose one auth option):
+# 1) Easy: FIREBASE_TOKEN
+#    - Generate locally: firebase login:ci
+#    - Add secret: FIREBASE_TOKEN
+# 2) Recommended: FIREBASE_SERVICE_ACCOUNT
+#    - Add deploy-capable service-account JSON as secret: FIREBASE_SERVICE_ACCOUNT
+# Optional: FIREBASE_PROJECT_ID secret to pin project explicitly.
 name: Deploy Firebase Functions
 
 on:
@@ -36,9 +38,41 @@ jobs:
         working-directory: functions
         run: npm run build
 
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Configure Firebase auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${FIREBASE_SERVICE_ACCOUNT:-}" ]; then
+            SA_KEY_FILE="$RUNNER_TEMP/firebase-sa.json"
+            printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$SA_KEY_FILE"
+            echo "GOOGLE_APPLICATION_CREDENTIALS=$SA_KEY_FILE" >> "$GITHUB_ENV"
+            echo "FIREBASE_AUTH_MODE=service_account" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          if [ -n "${FIREBASE_TOKEN:-}" ]; then
+            echo "FIREBASE_AUTH_MODE=token" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          echo "::error::Missing Firebase deploy auth. Add FIREBASE_TOKEN or FIREBASE_SERVICE_ACCOUNT in GitHub Actions secrets."
+          exit 1
+
       - name: Deploy to Firebase
-        uses: w9jds/firebase-action@master
-        with:
-          args: deploy --only functions --non-interactive
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJECT_FLAG=""
+          if [ -n "${FIREBASE_PROJECT_ID:-}" ]; then
+            PROJECT_FLAG="--project $FIREBASE_PROJECT_ID"
+          fi
+          if [ "${FIREBASE_AUTH_MODE:-}" = "token" ]; then
+            firebase deploy --only functions --non-interactive --token "$FIREBASE_TOKEN" $PROJECT_FLAG
+          else
+            firebase deploy --only functions --non-interactive $PROJECT_FLAG
+          fi
         env:
           FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}

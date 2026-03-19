@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/branding/app_branding.dart';
 import '../../../shared/forge_models.dart';
 import '../../../shared/widgets/forge_widgets.dart';
 import '../../auth/application/auth_controller.dart';
@@ -44,7 +45,7 @@ class _ForgeScreenshotStudioState extends State<ForgeScreenshotStudio> {
   static final AuthAccount _previewAccount = AuthAccount(
     id: 'preview-forge-user',
     email: 'launch@forgeai.dev',
-    displayName: 'ForgeAI Beta',
+    displayName: '$kAppDisplayName Beta',
     provider: AuthProviderKind.github,
     createdAt: DateTime(2026, 3, 18, 9),
     providerLinkedAt: DateTime(2026, 3, 18, 9),
@@ -129,6 +130,7 @@ class _ForgeScreenshotStudioState extends State<ForgeScreenshotStudio> {
       lastSynced: Duration(minutes: 8),
       stars: 182,
       isProtected: true,
+      htmlUrl: 'https://github.com/forgeai/mobile-app',
     );
 
     const selectedFile = ForgeFileNode(
@@ -224,13 +226,6 @@ Future<void> refreshSelectedRepository() async {
           status: ForgeConnectionStatus.connected,
           lastChecked: '2m ago',
         ),
-        ForgeConnection(
-          provider: ForgeProvider.gitlab,
-          account: 'forgeai-platform',
-          scopeSummary: 'api, read_repository, write_repository',
-          status: ForgeConnectionStatus.connected,
-          lastChecked: '17m ago',
-        ),
       ],
       files: files,
       activities: const [
@@ -304,11 +299,13 @@ Future<void> refreshSelectedRepository() async {
       currentChangeRequest: const ForgeChangeRequest(
         id: 'preview-change-request',
         repoId: 'repo_mobile_app',
-        filePath: 'lib/src/features/workspace/data/forge_workspace_repository.dart',
+        filePath:
+            'lib/src/features/workspace/data/forge_workspace_repository.dart',
         provider: ForgeAiProvider.openai,
         prompt: 'Add visible syncing state before repository refresh.',
         status: 'draft',
-        summary: 'Stages a small UI-safe loading update around repository sync.',
+        summary:
+            'Stages a small UI-safe loading update around repository sync.',
         beforeContent: beforeContent,
         afterContent: afterContent,
         diffLines: [
@@ -319,7 +316,8 @@ Future<void> refreshSelectedRepository() async {
           ),
           ForgeDiffLine(
             prefix: '+',
-            line: '  value = value.copyWith(isSyncing: true, clearError: true);',
+            line:
+                '  value = value.copyWith(isSyncing: true, clearError: true);',
             isAddition: true,
           ),
           ForgeDiffLine(

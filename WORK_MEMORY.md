@@ -1,7 +1,7 @@
-# ForgeAI Working Memory
+# CodeCatalystAI Working Memory
 
 ## Mission
-- Build a production-oriented Flutter mobile app called ForgeAI.
+- Build a production-oriented Flutter mobile app called CodeCatalystAI.
 - Keep the app App Store safe: no terminal UI, no raw command execution, no remote desktop behavior.
 - All AI and Git actions must be user-triggered, visible, reviewable, and approval-based.
 
@@ -17,8 +17,8 @@
 - Frontend: Flutter
 - Backend: Firebase Auth, Firestore, Cloud Functions
 - Providers: OpenAI, Anthropic, Gemini
-- Git providers: GitHub and GitLab APIs
-- Checks system only via GitHub Actions / GitLab CI
+- Git providers: GitHub and GitHub APIs
+- Checks system only via GitHub Actions / GitHub CI
 - No terminal, shell, remote execution, or arbitrary command runner
 
 ## Active Workstreams
@@ -38,13 +38,13 @@
 - There was no existing Flutter project or Git repo in this folder at start.
 - Root already contains `google-services.json` and `GoogleService-Info.plist`.
 - Re-read this file before major edits or integration steps.
-- Root branding source folder is `ForgeAI_iOS_Icons/`.
+- Root branding source folder (if present) is `ForgeAI_iOS_Icons/` — legacy on-disk name; see `tool/generate_branding_assets.dart`.
 - `tool/generate_branding_assets.dart` is the current helper for producing branding assets from the icon pack.
 - Local provider secrets should live in git-ignored env files under `functions/`; never store raw keys in tracked docs or source files.
 - GitHub account sign-in is implemented in the Flutter auth flow; setup still depends on enabling the GitHub provider in Firebase Authentication and using `https://forgeai-555ee.firebaseapp.com/__/auth/handler` as the OAuth callback URL.
 
 ## Implementation Status
-- ForgeAI now has a custom app entrypoint, auth gate, signed-in home shell, and feature hubs wired to agent-built screens.
+- CodeCatalystAI now has a custom app entrypoint, auth gate, signed-in home shell, and feature hubs wired to agent-built screens.
 - Workflow modules exist under `lib/src/features/editor`, `diff`, `ai`, `checks`, `wallet`, `activity`, and `git`.
 - UI modules exist under `lib/src/features/dashboard`, `repos`, `settings`, and `lib/src/shared`.
 - Auth/account modules exist under `lib/src/features/auth`, `account`, and `lib/src/core/firebase`.
@@ -56,7 +56,7 @@
 - GitHub sign-in setup is now documented with the Firebase/GitHub OAuth callback path, and the auth layer surfaces a GitHub-specific configuration error when the provider is not enabled correctly.
 - Cloud Functions now expose provider config lookup, repository connect/sync, repository file loading, AI suggestion orchestration, Git action scaffolding, check dispatch scaffolding, and wallet movement helpers.
 - A live workspace controller and repository now bind Firestore repositories, provider connections, file trees, editor drafts, AI change requests, checks, wallet data, and activity into the Flutter shell.
-- Repository connection now supports GitHub/GitLab slug entry plus access-token-backed sync from the mobile app.
+- Repository connection now supports GitHub/GitHub slug entry plus access-token-backed sync from the mobile app.
 - The editor, diff review, Git flow, checks dashboard, wallet, activity history, and settings screens now read from live workspace state instead of static mock-only props.
 - The repository browser no longer falls back to mock file data when no live repository is selected.
 - Launch automation now includes env validation, Firebase deploy wrappers, smoke-test checklist runners, and screenshot-studio routes for release asset capture.
@@ -83,4 +83,4 @@
 - iOS launcher icons live under `ios/Runner/Assets.xcassets/AppIcon.appiconset`, and iOS launch images were regenerated under `ios/Runner/Assets.xcassets/LaunchImage.imageset`.
 - Firestore rules now cover `users/{uid}/connections/{provider}` and restrict repository file reads/writes to the owning user.
 - Current in-repo Firebase environment separation is still single-project only (`forgeai-555ee`).
-- GitLab beta flow is token-based; full GitLab mobile OAuth is not yet implemented.
+- GitHub beta flow is token-based; full GitHub mobile OAuth is not yet implemented.

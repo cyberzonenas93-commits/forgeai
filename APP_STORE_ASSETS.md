@@ -23,7 +23,7 @@ FORGEAI_ENABLE_SCREENSHOT_STUDIO=true FORGEAI_SCREENSHOT_SCENE=<scene> npm run r
 - Diff: "Review every AI change before it becomes a commit."
 - Checks: "Run tests, lint, and build workflows without a terminal."
 - Wallet: "Preview and track token usage with clear limits."
-- Settings: "Manage providers, security, and account deletion safely."
+- Settings: "Manage providers, security, legal, and account removal."
 
 ## Marketing Copy Fragments
 - "Premium mobile AI Git client"

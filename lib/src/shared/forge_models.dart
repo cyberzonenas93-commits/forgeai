@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum ForgeProvider { github, gitlab }
+enum ForgeProvider { github }
 
 enum ForgeCheckStatus { queued, running, passed, failed }
 
@@ -47,7 +47,14 @@ class ForgeNotificationPreferences {
   final bool digest;
 
   bool get hasAnyCategoryEnabled =>
-      checks || git || repository || ai || provider || wallet || security || digest;
+      checks ||
+      git ||
+      repository ||
+      ai ||
+      provider ||
+      wallet ||
+      security ||
+      digest;
 
   ForgeNotificationPreferences copyWith({
     bool? enabled,
@@ -143,6 +150,7 @@ class ForgeRepository {
     required this.stars,
     required this.isProtected,
     this.branches = const [],
+    this.htmlUrl,
   });
 
   final String id;
@@ -159,12 +167,21 @@ class ForgeRepository {
   final Duration lastSynced;
   final int stars;
   final bool isProtected;
+
   /// Branches from last sync (empty until repo is synced).
   final List<String> branches;
+  final String? htmlUrl;
 
-  String get providerLabel =>
-      provider == ForgeProvider.github ? 'GitHub' : 'GitLab';
+  String get providerLabel => 'GitHub';
   String get repoLabel => '$owner/$name';
+  String get canonicalUrl => 'https://github.com/$owner/$name';
+  String get shareUrl {
+    final candidate = htmlUrl?.trim();
+    if (candidate != null && candidate.isNotEmpty) {
+      return candidate;
+    }
+    return canonicalUrl;
+  }
 }
 
 class ForgeFileNode {
@@ -283,8 +300,7 @@ class ForgeConnection {
   final ForgeConnectionStatus status;
   final String lastChecked;
 
-  String get providerLabel =>
-      provider == ForgeProvider.github ? 'GitHub' : 'GitLab';
+  String get providerLabel => 'GitHub';
 }
 
 class ForgeTokenLog {
@@ -319,23 +335,7 @@ class ForgeMockData {
       lastSynced: Duration(minutes: 7),
       stars: 128,
       isProtected: true,
-    ),
-    ForgeRepository(
-      id: 'repo-platform-api',
-      name: 'platform-api',
-      owner: 'forgeai',
-      provider: ForgeProvider.gitlab,
-      language: 'Dart',
-      description:
-          'Backend functions, workflows, and token accounting services.',
-      defaultBranch: 'develop',
-      status: 'Needs review',
-      openPullRequests: 0,
-      openMergeRequests: 6,
-      changedFiles: 3,
-      lastSynced: Duration(minutes: 31),
-      stars: 64,
-      isProtected: false,
+      htmlUrl: 'https://github.com/forgeai/mobile-app',
     ),
     ForgeRepository(
       id: 'repo-docs',
@@ -353,6 +353,7 @@ class ForgeMockData {
       lastSynced: Duration(hours: 2),
       stars: 22,
       isProtected: true,
+      htmlUrl: 'https://github.com/forgeai/docs',
     ),
   ];
 
@@ -363,13 +364,6 @@ class ForgeMockData {
       scopeSummary: 'Repos, pull requests, checks, and webhooks',
       status: ForgeConnectionStatus.connected,
       lastChecked: '2 minutes ago',
-    ),
-    ForgeConnection(
-      provider: ForgeProvider.gitlab,
-      account: 'forgeai-team',
-      scopeSummary: 'Projects, merge requests, and pipelines',
-      status: ForgeConnectionStatus.pending,
-      lastChecked: '18 minutes ago',
     ),
   ];
 

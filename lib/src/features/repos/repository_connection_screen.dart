@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/branding/app_branding.dart';
 import '../../shared/widgets/forge_widgets.dart';
 import '../workspace/application/forge_workspace_controller.dart';
 import '../workspace/domain/forge_workspace_entities.dart';
@@ -22,7 +23,6 @@ class _RepositoryConnectionScreenState
   final _branchController = TextEditingController(text: 'main');
   final _tokenController = TextEditingController();
   final _apiBaseController = TextEditingController();
-  String _provider = 'github';
   bool _isLoadingRepositories = false;
   String? _repositoryLoadError;
   List<ForgeAvailableRepository> _availableRepositories =
@@ -62,30 +62,11 @@ class _RepositoryConnectionScreenState
                       const ForgeSectionHeader(
                         title: 'Connect repository',
                         subtitle:
-                            'Authorize GitHub or GitLab access for repository browsing, review-based commits, and CI actions.',
-                      ),
-                      const SizedBox(height: 16),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: [
-                          ChoiceChip(
-                            label: const Text('GitHub'),
-                            selected: _provider == 'github',
-                            onSelected: (_) => _setProvider('github'),
-                          ),
-                          ChoiceChip(
-                            label: const Text('GitLab'),
-                            selected: _provider == 'gitlab',
-                            onSelected: (_) => _setProvider('gitlab'),
-                          ),
-                        ],
+                            'Authorize GitHub access for repository browsing, review-based commits, and CI actions.',
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        _provider == 'github'
-                            ? 'Use `owner/repository` for GitHub. If you signed in with GitHub, ForgeAI can reuse that OAuth access automatically. You can still paste a token to override it.'
-                            : 'Use `group/project` for GitLab. An access token lets ForgeAI sync the real file tree and create Git actions through provider APIs.',
+                        'Use `owner/repository` for GitHub. If you signed in with GitHub, $kAppDisplayName can reuse that OAuth access automatically. You can still paste a token to override it.',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ],
@@ -106,9 +87,7 @@ class _RepositoryConnectionScreenState
                         TextFormField(
                           controller: _repositoryController,
                           decoration: InputDecoration(
-                            labelText: _provider == 'github'
-                                ? 'owner/repository'
-                                : 'group/project',
+                            labelText: 'owner/repository',
                           ),
                           validator: (value) {
                             final trimmed = (value ?? '').trim();
@@ -132,9 +111,7 @@ class _RepositoryConnectionScreenState
                           controller: _tokenController,
                           decoration: InputDecoration(
                             labelText: 'Access token',
-                            hintText: _provider == 'github'
-                                ? 'Optional if you signed in with GitHub'
-                                : 'Optional, but required for live sync',
+                            hintText: 'Optional if you signed in with GitHub',
                           ),
                           obscureText: true,
                         ),
@@ -143,7 +120,7 @@ class _RepositoryConnectionScreenState
                           controller: _apiBaseController,
                           decoration: const InputDecoration(
                             labelText: 'Custom API base URL',
-                            hintText: 'Optional for self-hosted GitLab',
+                            hintText: 'Optional for GitHub Enterprise',
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -167,16 +144,12 @@ class _RepositoryConnectionScreenState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _provider == 'github'
-                            ? 'Available GitHub repositories'
-                            : 'Available GitLab repositories',
+                        'Available GitHub repositories',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        _provider == 'github'
-                            ? 'Pick one to prefill the form or connect directly using your signed-in GitHub access.'
-                            : 'If your GitLab token is available, you can pick a project here instead of typing it manually.',
+                        'Pick one to prefill the form or connect directly using your signed-in GitHub access.',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       const SizedBox(height: 12),
@@ -208,9 +181,7 @@ class _RepositoryConnectionScreenState
                         )
                       else if (_availableRepositories.isEmpty)
                         Text(
-                          _provider == 'github'
-                              ? 'No repositories were returned yet. If you just signed in with GitHub, try refresh. You can still connect by typing `owner/repo` manually below.'
-                              : 'No projects were returned yet. Refresh, or connect manually with `group/project`.',
+                          'No repositories were returned yet. If you just signed in with GitHub, try refresh. You can still connect by typing `owner/repo` manually below.',
                           style: Theme.of(context).textTheme.bodySmall,
                         )
                       else
@@ -226,66 +197,63 @@ class _RepositoryConnectionScreenState
                               ),
                             ),
                             ConstrainedBox(
-                          constraints: const BoxConstraints(maxHeight: 320),
-                          child: ListView.builder(
-                            shrinkWrap: true,
-                            itemCount: _availableRepositories.length,
-                            itemBuilder: (context, index) {
-                              final repository =
-                                  _availableRepositories[index];
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
-                                child: ForgePanel(
-                                  onTap: () =>
-                                      _applyRepository(repository),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Row(
+                              constraints: const BoxConstraints(maxHeight: 320),
+                              child: ListView.builder(
+                                shrinkWrap: true,
+                                itemCount: _availableRepositories.length,
+                                itemBuilder: (context, index) {
+                                  final repository =
+                                      _availableRepositories[index];
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 10),
+                                    child: ForgePanel(
+                                      onTap: () => _applyRepository(repository),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          Expanded(
-                                            child: Text(
-                                              repository.fullName,
-                                              style: Theme.of(
-                                                context,
-                                              ).textTheme.titleSmall,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
+                                          Text(
+                                            repository.fullName,
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.titleSmall,
+                                            softWrap: true,
                                           ),
-                                          const SizedBox(width: 8),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            'Default branch: ${repository.defaultBranch}',
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.labelSmall,
+                                          ),
+                                          const SizedBox(height: 10),
                                           ForgeSecondaryButton(
-                                            label: 'Use',
-                                            icon: Icons
-                                                .arrow_downward_rounded,
+                                            label: 'Use this repository',
+                                            icon: Icons.arrow_downward_rounded,
                                             onPressed: () =>
-                                                _applyRepository(
-                                                    repository),
+                                                _applyRepository(repository),
+                                            expanded: true,
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            repository.description
+                                                        ?.trim()
+                                                        .isNotEmpty ==
+                                                    true
+                                                ? repository.description!
+                                                : 'No description provided.',
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.bodySmall,
                                           ),
                                         ],
                                       ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        repository.description
-                                                    ?.trim()
-                                                    .isNotEmpty ==
-                                                true
-                                            ? repository.description!
-                                            : 'Default branch: ${repository.defaultBranch}',
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.bodySmall,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
                           ],
                         ),
                     ],
@@ -299,18 +267,6 @@ class _RepositoryConnectionScreenState
     );
   }
 
-  Future<void> _setProvider(String provider) async {
-    if (_provider == provider) {
-      return;
-    }
-    setState(() {
-      _provider = provider;
-      _availableRepositories = const <ForgeAvailableRepository>[];
-      _repositoryLoadError = null;
-    });
-    await _loadAvailableRepositories();
-  }
-
   Future<void> _loadAvailableRepositories() async {
     setState(() {
       _isLoadingRepositories = true;
@@ -318,7 +274,7 @@ class _RepositoryConnectionScreenState
     });
     try {
       final repositories = await widget.controller.listProviderRepositories(
-        provider: _provider,
+        provider: 'github',
         query: _searchController.text.trim().isEmpty
             ? null
             : _searchController.text.trim(),
@@ -358,7 +314,7 @@ class _RepositoryConnectionScreenState
     try {
       await widget.controller.connectRepository(
         ForgeConnectRepositoryDraft(
-          provider: _provider,
+          provider: 'github',
           repository: _repositoryController.text.trim(),
           defaultBranch: _branchController.text.trim(),
           accessToken: _tokenController.text.trim().isEmpty

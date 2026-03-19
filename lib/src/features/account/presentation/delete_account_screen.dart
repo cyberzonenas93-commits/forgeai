@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/branding/app_branding.dart';
 import '../../../core/widgets/forge_ui.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../auth/domain/auth_failure.dart';
@@ -97,11 +98,11 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                       const ForgeSectionHeader(
                         title: 'Delete account',
                         subtitle:
-                            'This permanently removes the ForgeAI account and requires explicit confirmation.',
+                            'This permanently removes the $kAppDisplayName account and requires explicit confirmation.',
                       ),
                       const SizedBox(height: 14),
                       const ForgePill(
-                        label: 'Destructive action',
+                        label: 'Permanent action',
                         icon: Icons.warning_rounded,
                       ),
                     ],

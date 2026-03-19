@@ -15,7 +15,7 @@
 - [x] `functions/.env.production.example` exists
 - [x] No provider secret is stored in tracked source
 - [ ] GitHub service secret configured
-- [ ] GitLab service secret configured
+- [ ] GitHub service secret configured
 - [ ] OpenAI secret configured in target Firebase project
 - [ ] Anthropic secret configured if enabled
 - [ ] Gemini secret configured if enabled
@@ -44,9 +44,22 @@
 - [x] `DEVICE_TEST_PLAN.md`
 - [x] `OBSERVABILITY.md`
 - [x] `TOKEN_ECONOMICS.md`
+- [x] `PRICING_MODEL.md`
+- [x] `BILLING_ARCHITECTURE.md`
+- [x] `APPLE_IAP_PLAN.md`
+- [x] `REVENUE_SIMULATION.md`
 - [x] `BETA_RELEASE_PLAN.md`
 - [x] `BETA_TEST_PLAN.md`
 - [x] `BETA_FEEDBACK_TEMPLATE.md`
+
+## Monetization (beta-ready)
+- [x] Central pricing and plan/pack config
+- [x] Wallet reservation/capture/release and ledger
+- [x] Plan-based daily cap and monthly limits
+- [x] Paywall and token pack UI; billing abstraction
+- [x] Token economics simulator and margin scenarios
+- [ ] Apple IAP products created in App Store Connect
+- [ ] Live ForgeBillingService implementation (StoreKit/RevenueCat)
 
 ## Go / No-Go
 - Go when all unchecked console/device items above are complete and smoke tests pass on real accounts.

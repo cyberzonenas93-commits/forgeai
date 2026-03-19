@@ -7,6 +7,7 @@ import '../../legal/legal_document_screen.dart';
 import '../application/auth_controller.dart';
 import '../domain/auth_provider_kind.dart';
 import '../domain/auth_state.dart';
+import 'create_account_screen.dart';
 
 class AuthEntryScreen extends StatefulWidget {
   const AuthEntryScreen({super.key, required this.controller});
@@ -21,34 +22,29 @@ class _AuthEntryScreenState extends State<AuthEntryScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _displayNameController = TextEditingController();
-  bool _isSignUp = false;
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
-    _displayNameController.dispose();
     super.dispose();
   }
 
   Future<void> _submitEmail() async {
     final form = _formKey.currentState;
-    if (form == null || !form.validate()) {
-      return;
-    }
-    if (_isSignUp) {
-      await widget.controller.signUpWithEmail(
-        email: _emailController.text,
-        password: _passwordController.text,
-        displayName: _displayNameController.text,
-      );
-    } else {
-      await widget.controller.signInWithEmail(
-        email: _emailController.text,
-        password: _passwordController.text,
-      );
-    }
+    if (form == null || !form.validate()) return;
+    await widget.controller.signInWithEmail(
+      email: _emailController.text.trim(),
+      password: _passwordController.text,
+    );
+  }
+
+  void _openCreateAccount() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CreateAccountScreen(controller: widget.controller),
+      ),
+    );
   }
 
   @override
@@ -62,9 +58,10 @@ class _AuthEntryScreenState extends State<AuthEntryScreen> {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                     ForgePanel(
                       highlight: true,
                       child: Column(
@@ -73,9 +70,7 @@ class _AuthEntryScreenState extends State<AuthEntryScreen> {
                           const ForgeBrandMark(showText: true),
                           const SizedBox(height: 18),
                           Text(
-                            _isSignUp
-                                ? 'Create your ForgeAI account'
-                                : 'Welcome back',
+                            'Welcome back',
                             style: Theme.of(context).textTheme.headlineMedium,
                           ),
                           const SizedBox(height: 8),
@@ -110,19 +105,10 @@ class _AuthEntryScreenState extends State<AuthEntryScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _isSignUp ? 'Email sign up' : 'Email sign in',
+                              'Email sign in',
                               style: Theme.of(context).textTheme.titleMedium,
                             ),
                             const SizedBox(height: 12),
-                            if (_isSignUp) ...[
-                              TextFormField(
-                                controller: _displayNameController,
-                                decoration: const InputDecoration(
-                                  labelText: 'Display name',
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                            ],
                             TextFormField(
                               controller: _emailController,
                               keyboardType: TextInputType.emailAddress,
@@ -130,7 +116,7 @@ class _AuthEntryScreenState extends State<AuthEntryScreen> {
                                 labelText: 'Email',
                               ),
                               validator: (value) =>
-                                  (value?.contains('@') ?? false)
+                                  (value?.trim().contains('@') ?? false)
                                   ? null
                                   : 'Enter a valid email address.',
                             ),
@@ -138,32 +124,26 @@ class _AuthEntryScreenState extends State<AuthEntryScreen> {
                             TextFormField(
                               controller: _passwordController,
                               obscureText: true,
-                              decoration: InputDecoration(
-                                labelText: _isSignUp
-                                    ? 'Create password'
-                                    : 'Password',
+                              decoration: const InputDecoration(
+                                labelText: 'Password',
                               ),
                               validator: (value) =>
-                                  ((value ?? '').trim().length >= 8)
-                                  ? null
-                                  : 'Use at least 8 characters.',
+                                  (value ?? '').trim().isEmpty
+                                  ? 'Enter your password.'
+                                  : null,
                             ),
                             const SizedBox(height: 16),
                             ForgePrimaryButton(
-                              label: _isSignUp ? 'Create account' : 'Sign in',
+                              label: 'Sign in',
                               icon: Icons.login_rounded,
                               onPressed: state.isBusy ? null : _submitEmail,
                               expanded: true,
                             ),
                             const SizedBox(height: 10),
                             ForgeSecondaryButton(
-                              label: _isSignUp
-                                  ? 'I already have an account'
-                                  : 'Need an account? Create one',
-                              onPressed: state.isBusy
-                                  ? null
-                                  : () =>
-                                        setState(() => _isSignUp = !_isSignUp),
+                              label: 'Need an account? Create one',
+                              icon: Icons.person_add_rounded,
+                              onPressed: state.isBusy ? null : _openCreateAccount,
                               expanded: true,
                             ),
                           ],
@@ -252,6 +232,7 @@ class _AuthEntryScreenState extends State<AuthEntryScreen> {
                   ],
                 ),
               ),
+            ),
             ),
           ),
         );

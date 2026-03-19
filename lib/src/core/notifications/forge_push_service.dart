@@ -6,13 +6,15 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import '../branding/app_branding.dart';
+
 import '../../../firebase_options.dart';
 import '../../shared/forge_models.dart';
 
 const AndroidNotificationChannel _forgeNotificationChannel =
     AndroidNotificationChannel(
       'forgeai_default',
-      'ForgeAI Notifications',
+      '$kAppDisplayName Notifications',
       description: 'Status updates for repositories, checks, AI, and account events.',
       importance: Importance.high,
     );
@@ -275,7 +277,7 @@ class ForgePushService {
 
   String? _fallbackTitle(Map<String, dynamic> data) {
     final title = data['title'];
-    return title is String && title.trim().isNotEmpty ? title : 'ForgeAI';
+    return title is String && title.trim().isNotEmpty ? title : kAppDisplayName;
   }
 
   String? _fallbackBody(Map<String, dynamic> data) {

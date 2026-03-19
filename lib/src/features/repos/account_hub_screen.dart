@@ -1,23 +1,31 @@
 import 'package:flutter/material.dart';
 
+import '../../core/branding/app_branding.dart';
 import '../../core/theme/forge_palette.dart';
 import '../../shared/forge_models.dart';
 import '../../shared/widgets/forge_widgets.dart';
+import '../auth/application/auth_controller.dart';
+import '../auth/domain/auth_account.dart';
+import '../auth/presentation/guest_gate_dialog.dart';
 import '../workspace/application/forge_workspace_controller.dart';
 import '../workspace/domain/forge_workspace_entities.dart';
 
-/// Account hub: shows all repos in the GitHub/GitLab account so the user
+/// Account hub: shows all repos in the GitHub account so the user
 /// and AI can work with them. Lists connected repos and all available
-/// account repos with Connect / Select for AI.
+/// account repos with Connect / Select for AI. Guests see a sign-in CTA.
 class AccountHubScreen extends StatefulWidget {
   const AccountHubScreen({
     super.key,
     required this.controller,
+    this.account,
+    this.authController,
     this.onSwitchToRepoTab,
     this.onSwitchToAskTab,
   });
 
   final ForgeWorkspaceController controller;
+  final AuthAccount? account;
+  final AuthController? authController;
   final VoidCallback? onSwitchToRepoTab;
   final VoidCallback? onSwitchToAskTab;
 
@@ -27,9 +35,7 @@ class AccountHubScreen extends StatefulWidget {
 
 class _AccountHubScreenState extends State<AccountHubScreen> {
   List<ForgeAvailableRepository> _githubRepos = const [];
-  List<ForgeAvailableRepository> _gitlabRepos = const [];
   bool _loadingGitHub = false;
-  bool _loadingGitLab = false;
   String? _loadError;
 
   @override
@@ -42,32 +48,34 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
     setState(() {
       _loadError = null;
       _loadingGitHub = true;
-      _loadingGitLab = true;
     });
     try {
       final results = await Future.wait([
-        widget.controller.listProviderRepositories(provider: 'github').catchError((e) => <ForgeAvailableRepository>[]),
-        widget.controller.listProviderRepositories(provider: 'gitlab').catchError((e) => <ForgeAvailableRepository>[]),
+        widget.controller
+            .listProviderRepositories(provider: 'github')
+            .catchError((e) => <ForgeAvailableRepository>[]),
       ]);
       if (!mounted) return;
       setState(() {
         _githubRepos = results[0];
-        _gitlabRepos = results[1];
         _loadingGitHub = false;
-        _loadingGitLab = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loadError = e.toString();
         _loadingGitHub = false;
-        _loadingGitLab = false;
       });
     }
   }
 
-  bool _isConnected(ForgeRepository connected, String provider, String fullName) {
-    return connected.provider.name == provider && connected.repoLabel == fullName;
+  bool _isConnected(
+    ForgeRepository connected,
+    String provider,
+    String fullName,
+  ) {
+    return connected.provider.name == provider &&
+        connected.repoLabel == fullName;
   }
 
   ForgeRepository? _findConnected(
@@ -83,24 +91,29 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
 
   Future<void> _connectRepo(ForgeAvailableRepository repo) async {
     try {
-      await widget.controller.connectRepository(ForgeConnectRepositoryDraft(
-        provider: repo.provider,
-        repository: repo.fullName,
-        defaultBranch: repo.defaultBranch,
-      ));
+      await widget.controller.connectRepository(
+        ForgeConnectRepositoryDraft(
+          provider: repo.provider,
+          repository: repo.fullName,
+          defaultBranch: repo.defaultBranch,
+        ),
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Connected ${repo.fullName}. Use Ask or Repo to work with it.')),
+        SnackBar(
+          content: Text(
+            'Connected ${repo.fullName}. Use Ask or Repo to work with it.',
+          ),
+        ),
       );
       await _loadAllAccountRepos();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
-
 
   Future<({String branchName, String commitMessage})?> _askBranchAndCommit({
     required String defaultBranch,
@@ -139,7 +152,9 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop((
-              branchName: branchController.text.trim().isEmpty ? defaultBranch : branchController.text.trim(),
+              branchName: branchController.text.trim().isEmpty
+                  ? defaultBranch
+                  : branchController.text.trim(),
               commitMessage: commitController.text.trim().isEmpty
                   ? defaultMessage
                   : commitController.text.trim(),
@@ -153,7 +168,8 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
 
   Future<void> _installWorkflowForSelected(ForgeRepository repo) async {
     final draft = await _askBranchAndCommit(
-      defaultBranch: widget.controller.value.selectedBranch ?? repo.defaultBranch,
+      defaultBranch:
+          widget.controller.value.selectedBranch ?? repo.defaultBranch,
     );
     if (draft == null) return;
     try {
@@ -164,28 +180,69 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Installed run-app.yml on ${draft.branchName} for ${repo.name}.'),
+          content: Text(
+            'Installed run-app.yml on ${draft.branchName} for ${repo.name}.',
+          ),
         ),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final isGuest = widget.account?.isGuest ?? false;
+
     return ValueListenableBuilder(
       valueListenable: widget.controller,
       builder: (context, state, _) {
+        if (isGuest && widget.authController != null) {
+          return Scaffold(
+            backgroundColor: Colors.transparent,
+            body: ForgeScreen(
+              child: ListView(
+                physics: const BouncingScrollPhysics(),
+                children: [
+                  ForgePanel(
+                    highlight: true,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const ForgeSectionHeader(
+                          title: 'Account hub',
+                          subtitle:
+                              'Link GitHub to see and connect repositories from your account.',
+                        ),
+                        const SizedBox(height: 20),
+                        ForgePrimaryButton(
+                          label: 'Sign in to link accounts',
+                          icon: Icons.login_rounded,
+                          expanded: true,
+                          onPressed: () => showGuestSignInRequiredDialog(
+                            context,
+                            authController: widget.authController!,
+                            featureName: 'Account hub',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
         final connected = state.repositories;
         final connections = state.connections;
         final selectedRepo = state.selectedRepository;
-        final hasGitHub = connections.any((c) => c.providerLabel.toLowerCase() == 'github');
-        final hasGitLab = connections.any((c) => c.providerLabel.toLowerCase() == 'gitlab');
-
+        final hasGitHub = connections.any(
+          (c) => c.providerLabel.toLowerCase() == 'github',
+        );
         return Scaffold(
           backgroundColor: Colors.transparent,
           body: ForgeScreen(
@@ -201,15 +258,14 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
                       const ForgeSectionHeader(
                         title: 'Account hub',
                         subtitle:
-                            'All repos in your GitHub and GitLab account. Connect any repo so the AI and editor can work with it.',
+                            'All repos in your GitHub account. Connect any repo so the AI and editor can work with it.',
                       ),
                       if (_loadError != null) ...[
                         const SizedBox(height: 12),
                         Text(
                           _loadError!,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: ForgePalette.error,
-                              ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: ForgePalette.error),
                         ),
                         const SizedBox(height: 8),
                         ForgeSecondaryButton(
@@ -222,54 +278,33 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                // Connected in ForgeAI
+                // Connected in app (see kAppDisplayName in UI)
                 ForgePanel(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Connected in ForgeAI',
-                                  style: Theme.of(context).textTheme.titleMedium,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              ForgePill(
-                                label: '${connected.length}',
-                                icon: Icons.folder_rounded,
-                                color: ForgePalette.glowAccent,
-                              ),
-                            ],
-                          ),
-                          if (selectedRepo != null) ...[
-                            const SizedBox(height: 8),
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: ForgeSecondaryButton(
-                                label: 'Install run-app.yml',
-                                icon: Icons.download_rounded,
-                                onPressed: state.isSubmittingGitAction
-                                    ? null
-                                    : () => _installWorkflowForSelected(selectedRepo),
-                              ),
-                            ),
-                          ],
-                        ],
+                      ForgeSectionHeader(
+                        title: 'Connected in $kAppDisplayName',
+                        subtitle:
+                            'These repos are synced. Select one to use in Ask or the Editor.',
+                        trailing: ForgePill(
+                          label: '${connected.length}',
+                          icon: Icons.folder_rounded,
+                          color: ForgePalette.glowAccent,
+                        ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'These repos are synced. Select one to use in Ask or the Editor.',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: ForgePalette.textSecondary,
-                            ),
-                      ),
-                      const SizedBox(height: 12),
+                      if (selectedRepo != null) ...[
+                        const SizedBox(height: 12),
+                        ForgeSecondaryButton(
+                          label: 'Install run-app.yml',
+                          icon: Icons.download_rounded,
+                          onPressed: state.isSubmittingGitAction
+                              ? null
+                              : () => _installWorkflowForSelected(selectedRepo),
+                          expanded: true,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       if (connected.isEmpty)
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 12),
@@ -284,40 +319,88 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 10),
                             child: ForgePanel(
-                              onTap: () => widget.controller.selectRepository(repo),
+                              onTap: () =>
+                                  widget.controller.selectRepository(repo),
                               highlight: selected,
                               backgroundColor: selected
-                                  ? ForgePalette.glowAccent.withValues(alpha: 0.12)
+                                  ? ForgePalette.glowAccent.withValues(
+                                      alpha: 0.12,
+                                    )
                                   : null,
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 14,
                                 vertical: 12,
                               ),
-                              child: Row(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Icon(
-                                    repo.provider == ForgeProvider.github
-                                        ? Icons.code_rounded
-                                        : Icons.merge_type_rounded,
-                                    color: ForgePalette.glowAccent,
-                                    size: 22,
+                                  LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      final compact =
+                                          constraints.maxWidth < 340;
+                                      final title = Text(
+                                        repo.name,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleSmall,
+                                      );
+                                      if (compact) {
+                                        return Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Icon(
+                                                  repo.provider ==
+                                                          ForgeProvider.github
+                                                      ? Icons.code_rounded
+                                                      : Icons
+                                                            .merge_type_rounded,
+                                                  color:
+                                                      ForgePalette.glowAccent,
+                                                  size: 22,
+                                                ),
+                                                if (selected) ...[
+                                                  const SizedBox(width: 8),
+                                                  const Icon(
+                                                    Icons.check_circle_rounded,
+                                                    color:
+                                                        ForgePalette.glowAccent,
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                            const SizedBox(height: 8),
+                                            title,
+                                          ],
+                                        );
+                                      }
+
+                                      return Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Icon(
+                                            repo.provider ==
+                                                    ForgeProvider.github
+                                                ? Icons.code_rounded
+                                                : Icons.merge_type_rounded,
+                                            color: ForgePalette.glowAccent,
+                                            size: 22,
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(child: title),
+                                          if (selected)
+                                            const Icon(
+                                              Icons.check_circle_rounded,
+                                              color: ForgePalette.glowAccent,
+                                            ),
+                                        ],
+                                      );
+                                    },
                                   ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          repo.name,
-                                          style: Theme.of(context).textTheme.titleSmall,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  if (selected)
-                                    const Icon(Icons.check_circle_rounded, color: ForgePalette.glowAccent),
-                                  const SizedBox(width: 8),
+                                  const SizedBox(height: 12),
                                   ForgeSecondaryButton(
                                     label: 'Use in Repo',
                                     icon: Icons.folder_open_rounded,
@@ -325,6 +408,7 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
                                       widget.controller.selectRepository(repo);
                                       widget.onSwitchToRepoTab?.call();
                                     },
+                                    expanded: true,
                                   ),
                                 ],
                               ),
@@ -340,28 +424,25 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           Text(
                             'All from GitHub',
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                           if (_loadingGitHub)
-                            const Padding(
-                              padding: EdgeInsets.only(left: 8),
-                              child: SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              ),
+                            const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           else
-                            Padding(
-                              padding: const EdgeInsets.only(left: 8),
-                              child: ForgePill(
-                                label: '${_githubRepos.length}',
-                                icon: Icons.code_rounded,
-                              ),
+                            ForgePill(
+                              label: '${_githubRepos.length}',
+                              icon: Icons.code_rounded,
                             ),
                         ],
                       ),
@@ -371,8 +452,8 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
                             ? 'Connect any repo so the AI can work with it.'
                             : 'Sign in with GitHub to see your repos here.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: ForgePalette.textSecondary,
-                            ),
+                          color: ForgePalette.textSecondary,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       if (!hasGitHub)
@@ -393,33 +474,35 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
                         )
                       else
                         ..._githubRepos.take(50).map((repo) {
-                          final existing = _findConnected(connected, 'github', repo.fullName);
-                          final displayName = repo.name.isNotEmpty ? repo.name : repo.fullName;
+                          final existing = _findConnected(
+                            connected,
+                            'github',
+                            repo.fullName,
+                          );
+                          final displayName = repo.name.isNotEmpty
+                              ? repo.name
+                              : repo.fullName;
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 8),
-                            child: Row(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        displayName,
-                                        style: Theme.of(context).textTheme.titleSmall,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ],
-                                  ),
+                                Text(
+                                  displayName,
+                                  style: Theme.of(context).textTheme.titleSmall,
                                 ),
-                                const SizedBox(width: 8),
+                                const SizedBox(height: 10),
                                 if (existing != null)
                                   ForgeSecondaryButton(
                                     label: 'Select',
                                     icon: Icons.check_rounded,
                                     onPressed: () {
-                                      widget.controller.selectRepository(existing);
+                                      widget.controller.selectRepository(
+                                        existing,
+                                      );
                                       widget.onSwitchToAskTab?.call();
                                     },
+                                    expanded: true,
                                   )
                                 else
                                   ForgePrimaryButton(
@@ -428,6 +511,7 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
                                     onPressed: state.isConnectingRepository
                                         ? null
                                         : () => _connectRepo(repo),
+                                    expanded: true,
                                   ),
                               ],
                             ),
@@ -438,116 +522,6 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
                           padding: const EdgeInsets.only(top: 8),
                           child: Text(
                             '+ ${_githubRepos.length - 50} more. Use Repo tab to search.',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                // All from GitLab
-                ForgePanel(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            'All from GitLab',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          if (_loadingGitLab)
-                            const Padding(
-                              padding: EdgeInsets.only(left: 8),
-                              child: SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              ),
-                            )
-                          else
-                            Padding(
-                              padding: const EdgeInsets.only(left: 8),
-                              child: ForgePill(
-                                label: '${_gitlabRepos.length}',
-                                icon: Icons.merge_type_rounded,
-                              ),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        hasGitLab
-                            ? 'Connect any project so the AI can work with it.'
-                            : 'Connect GitLab in the Repo tab to see your projects.',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: ForgePalette.textSecondary,
-                            ),
-                      ),
-                      const SizedBox(height: 12),
-                      if (!hasGitLab)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Text(
-                            'Connect GitLab in the Repo tab to list your account repos.',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        )
-                      else if (_gitlabRepos.isEmpty && !_loadingGitLab)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Text(
-                            'No GitLab projects returned.',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        )
-                      else
-                        ..._gitlabRepos.take(50).map((repo) {
-                          final existing = _findConnected(connected, 'gitlab', repo.fullName);
-                          final displayName = repo.name.isNotEmpty ? repo.name : repo.fullName;
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        displayName,
-                                        style: Theme.of(context).textTheme.titleSmall,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                if (existing != null)
-                                  ForgeSecondaryButton(
-                                    label: 'Select',
-                                    icon: Icons.check_rounded,
-                                    onPressed: () {
-                                      widget.controller.selectRepository(existing);
-                                      widget.onSwitchToAskTab?.call();
-                                    },
-                                  )
-                                else
-                                  ForgePrimaryButton(
-                                    label: 'Connect',
-                                    icon: Icons.link_rounded,
-                                    onPressed: state.isConnectingRepository
-                                        ? null
-                                        : () => _connectRepo(repo),
-                                  ),
-                              ],
-                            ),
-                          );
-                        }),
-                      if (_gitlabRepos.length > 50)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            '+ ${_gitlabRepos.length - 50} more.',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ),

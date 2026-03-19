@@ -19,7 +19,7 @@ const demoRepositories = <ConnectedRepository>[
     id: 'repo-api',
     owner: 'forgeai',
     name: 'backend-contracts',
-    provider: GitProviderKind.gitlab,
+    provider: GitProviderKind.github,
     defaultBranch: 'main',
     headBranch: 'feature/token-ledger',
     description: 'Cloud Functions and shared provider contracts.',

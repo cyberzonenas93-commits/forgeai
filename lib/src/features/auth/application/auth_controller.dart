@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/observability/forge_telemetry.dart';
+import '../../../core/firebase/forge_firebase_readiness.dart';
 import '../data/firebase_auth_repository.dart';
 import '../data/in_memory_auth_repository.dart';
 import '../domain/auth_account.dart';
@@ -26,7 +26,7 @@ class AuthController extends ValueNotifier<AuthState> {
   StreamSubscription<AuthAccount?>? _subscription;
 
   static AuthRepository _defaultRepository() {
-    if (Firebase.apps.isNotEmpty) {
+    if (forgeHasInitializedFirebaseApp()) {
       return FirebaseAuthRepository();
     }
     return InMemoryAuthRepository();

@@ -8,7 +8,7 @@ enum ForgeSection {
   settings,
 }
 
-enum GitProviderKind { github, gitlab }
+enum GitProviderKind { github }
 
 enum ReviewLineKind { added, removed, unchanged }
 

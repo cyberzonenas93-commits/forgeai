@@ -1,11 +1,11 @@
 import 'package:firebase_analytics/firebase_analytics.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../features/auth/domain/auth_account.dart';
+import '../firebase/forge_firebase_readiness.dart';
 import '../config/forge_release_config.dart';
 
 final forgeTelemetryProvider = Provider<ForgeTelemetry>(
@@ -27,7 +27,7 @@ class ForgeTelemetry {
       : null;
   PackageInfo? _packageInfo;
 
-  bool get _firebaseReady => Firebase.apps.isNotEmpty;
+  bool get _firebaseReady => forgeHasInitializedFirebaseApp();
 
   List<NavigatorObserver> get navigatorObservers {
     final analytics = _analytics;

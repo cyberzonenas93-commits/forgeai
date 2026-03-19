@@ -228,6 +228,93 @@ class ForgePromptMediaAttachment {
   final String dataBase64;
 }
 
+class ForgePromptAgentTrace {
+  const ForgePromptAgentTrace({
+    required this.threadId,
+    required this.recordedAt,
+    required this.steps,
+    required this.inspectedFiles,
+    required this.proposedEditFiles,
+    required this.plannedEdits,
+    required this.summary,
+  });
+
+  final String threadId;
+  final DateTime recordedAt;
+  final List<String> steps;
+  final List<String> inspectedFiles;
+  final List<String> proposedEditFiles;
+  final List<ForgePromptPlannedEdit> plannedEdits;
+  final String summary;
+}
+
+class ForgePromptPlannedEdit {
+  const ForgePromptPlannedEdit({
+    required this.path,
+    required this.action,
+    required this.rationale,
+  });
+
+  final String path;
+  final String action;
+  final String rationale;
+}
+
+class ForgeAskRepoResult {
+  const ForgeAskRepoResult({
+    required this.reply,
+    this.inspectedFiles = const <String>[],
+    this.plannedEdits = const <ForgePromptPlannedEdit>[],
+  });
+
+  final String reply;
+  final List<String> inspectedFiles;
+  final List<ForgePromptPlannedEdit> plannedEdits;
+}
+
+class ForgeCreateAiProjectResult {
+  const ForgeCreateAiProjectResult({
+    required this.repoId,
+    required this.fullName,
+    required this.defaultBranch,
+    required this.fileCount,
+    this.htmlUrl,
+    this.syncStatus,
+  });
+
+  final String repoId;
+  final String fullName;
+  final String defaultBranch;
+  final int fileCount;
+  final String? htmlUrl;
+  final String? syncStatus;
+
+  static ForgeCreateAiProjectResult fromCallableData(
+    Map<Object?, Object?> data,
+  ) {
+    final repoId = data['repoId'] as String?;
+    final fullName = data['fullName'] as String?;
+    if (repoId == null || repoId.isEmpty) {
+      throw const FormatException('createProjectRepository: missing repoId');
+    }
+    final fc = data['fileCount'];
+    final fileCount = fc is int
+        ? fc
+        : fc is num
+            ? fc.toInt()
+            : 0;
+    final rawBranch = (data['defaultBranch'] as String?)?.trim() ?? '';
+    return ForgeCreateAiProjectResult(
+      repoId: repoId,
+      fullName: fullName ?? repoId,
+      defaultBranch: rawBranch.isNotEmpty ? rawBranch : 'main',
+      fileCount: fileCount,
+      htmlUrl: data['htmlUrl'] as String?,
+      syncStatus: data['syncStatus'] as String?,
+    );
+  }
+}
+
 class ForgeAccountProfile {
   const ForgeAccountProfile({
     required this.account,

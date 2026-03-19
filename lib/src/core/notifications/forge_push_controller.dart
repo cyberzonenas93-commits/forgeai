@@ -69,7 +69,19 @@ class ForgePushController extends ValueNotifier<ForgePushState> {
     unawaited(_initialize());
   }
 
-  final ForgePushService _service;
+  ForgePushController.preview({
+    required AuthController authController,
+    ForgeTelemetry? telemetry,
+  }) : _service = null,
+       _authController = authController,
+       _registerToken = _noopRegisterToken,
+       _unregisterToken = _noopUnregisterToken,
+       _telemetry = telemetry ?? ForgeTelemetry.instance,
+       super(const ForgePushState(isInitialized: true)) {
+    _authController.addListener(_handleAuthChanged);
+  }
+
+  final ForgePushService? _service;
   final AuthController _authController;
   final Future<void> Function({
     required String token,
@@ -87,13 +99,31 @@ class ForgePushController extends ValueNotifier<ForgePushState> {
   String? _lastRegisteredToken;
   String _lastPlatform = 'unknown';
 
+  static Future<void> _noopRegisterToken({
+    required String token,
+    required String platform,
+    required ForgePushPermissionStatus permissionStatus,
+  }) async {}
+
+  static Future<void> _noopUnregisterToken(String token) async {}
+
   Future<void> _initialize() async {
+    final service = _service;
+    if (service == null) {
+      value = value.copyWith(isInitialized: true, clearError: true);
+      return;
+    }
     try {
-      await _service.initialize();
-      _routeSubscription = _service.routes.listen(_handleRoute);
-      _registrationSubscription = _service.registrations.listen(
+      await service.initialize();
+      _routeSubscription = service.routes.listen(_handleRoute);
+      _registrationSubscription = service.registrations.listen(
         _handleRegistration,
       );
+      // Pull current registration after listeners are attached so launch-time
+      // state is consistent even if the initial service event was emitted
+      // before this controller subscribed.
+      final registration = await service.refreshRegistration();
+      await _handleRegistration(registration);
       value = value.copyWith(isInitialized: true, clearError: true);
     } catch (error, stackTrace) {
       value = value.copyWith(errorMessage: error.toString());
@@ -108,12 +138,20 @@ class ForgePushController extends ValueNotifier<ForgePushState> {
   }
 
   Future<void> requestPermission() async {
+    final service = _service;
+    if (service == null) {
+      value = value.copyWith(
+        isRequestingPermission: false,
+        clearError: true,
+      );
+      return;
+    }
     value = value.copyWith(
       isRequestingPermission: true,
       clearError: true,
     );
     try {
-      final registration = await _service.refreshRegistration(
+      final registration = await service.refreshRegistration(
         requestPermission: true,
       );
       await _handleRegistration(registration);
@@ -217,7 +255,10 @@ class ForgePushController extends ValueNotifier<ForgePushState> {
     _authController.removeListener(_handleAuthChanged);
     unawaited(_routeSubscription?.cancel());
     unawaited(_registrationSubscription?.cancel());
-    unawaited(_service.dispose());
+    final service = _service;
+    if (service != null) {
+      unawaited(service.dispose());
+    }
     super.dispose();
   }
 }

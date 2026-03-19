@@ -1,0 +1,118 @@
+{
+  "identifier" : "CodeCatalystAI-StoreKit",
+  "nonRenewingSubscriptions" : [
+  ],
+  "products" : [
+    {
+      "displayPrice" : "5.99",
+      "familyShareable" : false,
+      "internalID" : "tokens_small",
+      "localizations" : [
+        {
+          "description" : "100 CodeCatalystAI tokens",
+          "displayName" : "100 Tokens",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.forgeai.app.tokens.small",
+      "referenceName" : "Tokens Small",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "14.99",
+      "familyShareable" : false,
+      "internalID" : "tokens_medium",
+      "localizations" : [
+        {
+          "description" : "300 CodeCatalystAI tokens",
+          "displayName" : "300 Tokens",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.forgeai.app.tokens.medium",
+      "referenceName" : "Tokens Medium",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "34.99",
+      "familyShareable" : false,
+      "internalID" : "tokens_large",
+      "localizations" : [
+        {
+          "description" : "1000 CodeCatalystAI tokens",
+          "displayName" : "1000 Tokens",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.forgeai.app.tokens.large",
+      "referenceName" : "Tokens Large",
+      "type" : "Consumable"
+    }
+  ],
+  "settings" : {
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "forgeai_plans",
+      "localizations" : [
+        {
+          "displayName" : "CodeCatalystAI Plans",
+          "locale" : "en_US"
+        }
+      ],
+      "name" : "CodeCatalystAI Plans",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+          ],
+          "codeOffers" : [
+          ],
+          "displayPrice" : "14.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "pro_sub",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "300 tokens/month, 50 actions/day, standard models",
+              "displayName" : "Pro",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.forgeai.app.subscription.pro",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Pro",
+          "subscriptionGroupID" : "forgeai_plans",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+          ],
+          "codeOffers" : [
+          ],
+          "displayPrice" : "29.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "power_sub",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "800 tokens/month, 150 actions/day, priority models",
+              "displayName" : "Power",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.forgeai.app.subscription.power",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Power",
+          "subscriptionGroupID" : "forgeai_plans",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 2,
+    "minor" : 0
+  }
+}

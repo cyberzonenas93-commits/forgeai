@@ -1,4 +1,4 @@
-# ForgeAI — App Store Review Readiness Analysis
+# CodeCatalystAI — App Store Review Readiness Analysis
 
 This document summarizes the chances of passing App Store review based on a full codebase and compliance review. It maps to Apple’s **App Store Review Guidelines** and common rejection reasons.
 
@@ -67,14 +67,14 @@ This document summarizes the chances of passing App Store review based on a full
 **Current state:**
 - **Purpose and safety are well documented:** `APPLE_REVIEW_NOTES.md` clearly states no terminal, shell, remote desktop, VM, or autonomous merge; AI and Git actions are user-triggered and approval-gated.
 - App is a substantive mobile Git + AI workflow tool (repos, editor, diffs, commits, PR/MR, CI checks, wallet), not a thin wrapper.
-- Reviewer path: reviewer will need to sign in (guest is available), connect a repo (GitHub/GitLab), and use AI/Git features. That depends on backend (Firebase, provider keys) and OAuth being correctly configured.
+- Reviewer path: reviewer will need to sign in (guest is available), connect a repo (GitHub/GitHub), and use AI/Git features. That depends on backend (Firebase, provider keys) and OAuth being correctly configured.
 
 **Risk:** **Low** if backend and auth are working; **medium** if reviewer hits broken sign-in, “no backend” errors, or empty states with no way to demo value.
 
 **Recommendations:**
 1. Paste `APPLE_REVIEW_NOTES.md` (or the “Reviewer copy” section) into the “Notes for reviewer” in App Store Connect.
 2. Ensure the demo account / test repo and backend (OpenAI or other provider) are live and stable during review.
-3. Optionally provide a test GitHub/GitLab account and repo in the notes so the reviewer can exercise the full flow.
+3. Optionally provide a test GitHub/GitHub account and repo in the notes so the reviewer can exercise the full flow.
 
 ---
 
@@ -106,7 +106,7 @@ This document summarizes the chances of passing App Store review based on a full
 **Risk:** **Medium** — Missing usage description can lead to rejection or follow-up.
 
 **Recommendation:** Add to `ios/Runner/Info.plist`:
-- `NSPhotoLibraryUsageDescription` — e.g. “ForgeAI uses the photo library so you can attach images to prompts.”
+- `NSPhotoLibraryUsageDescription` — e.g. “CodeCatalystAI uses the photo library so you can attach images to prompts.”
 - `NSCameraUsageDescription` only if you use the camera for image capture elsewhere.
 
 ---
@@ -137,23 +137,21 @@ From `RELEASE_CHECKLIST.md`:
 
 ## 9. Summary: What to fix before submission
 
-| Priority | Item | Action |
+| Priority | Item | Status |
 |----------|------|--------|
-| **P0** | Privacy Policy & Terms | Publish policies and add in-app links (auth + Settings). |
-| **P0** | Account deletion | Extend deletion to Firestore (onDelete trigger or callable) and document in policy. |
-| **P1** | AI / third-party disclosure | Add in-app disclaimer and document in Privacy Policy. |
-| **P1** | Photo Library | Add `NSPhotoLibraryUsageDescription` to `Info.plist`. |
-| **P2** | Reviewer experience | Paste reviewer notes in App Store Connect; ensure backend and test account work. |
-| **P2** | Export compliance | Confirm and answer in App Store Connect; add Info.plist key if required. |
-| **P2** | Release checklist | Complete iOS and auth-related items and validate on device. |
+| **P0** | Privacy Policy & Terms | **Done.** Policies in `assets/legal/`; in-app links on auth footer and Settings → Legal. |
+| **P0** | Account deletion | **Done.** Cloud Function `deleteUserDataOnAuthDelete` wipes Firestore user data on Auth delete. |
+| **P1** | AI / third-party disclosure | **Done.** Legal section in Settings and policy wording; auth footer links. |
+| **P1** | Photo Library | **Done.** `NSPhotoLibraryUsageDescription` added to `ios/Runner/Info.plist`. |
+| **P2** | Reviewer experience | **Done.** `APPLE_REVIEW_NOTES.md` updated; paste into App Store Connect notes. |
+| **P2** | Export compliance | Answer in App Store Connect when submitting. |
+| **P2** | Release checklist | Complete iOS and auth-related items and validate on device before submit. |
 
 ---
 
 ## 10. Chances of passing after fixes
 
-- **As-is:** Chances are **low–moderate** — missing privacy/terms and incomplete deletion are frequent rejection reasons; missing usage description and lack of AI disclosure add risk.
-- **After P0 + P1 fixes:** Chances are **good** — you address the main policy and data-handling expectations and permission requirements.
-- **After full checklist + reviewer notes:** Chances are **high** — you align with guidelines 2.1, 4.8, 5.1.1, 5.1.2, and permission/export expectations, and give review a clear, working path to approve the app.
+- With the implemented P0/P1 fixes and wording updates, chances are **good to high** — privacy/terms in-app, full account data deletion, AI disclosure, permission strings, and reviewer notes are in place. Complete the release checklist and reviewer path before submitting.
 
 ---
 

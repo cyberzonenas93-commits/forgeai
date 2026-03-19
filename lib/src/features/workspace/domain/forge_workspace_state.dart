@@ -1,8 +1,15 @@
 import '../../../shared/forge_models.dart';
-import '../../../core/config/forge_release_config.dart';
 import 'forge_workspace_entities.dart';
 
-const _testWalletBalance = 999999999.0;
+/// Default wallet until backend snapshot arrives. Backend grants unlimited only to allowlisted email.
+const _defaultWallet = ForgeTokenWallet(
+  planName: 'Free',
+  balance: 0,
+  monthlyAllowance: 0,
+  spentThisWeek: 0,
+  nextReset: 'Not set',
+  currencySymbol: 'tokens',
+);
 
 class ForgeWorkspaceState {
   const ForgeWorkspaceState({
@@ -26,25 +33,10 @@ class ForgeWorkspaceState {
     this.promptStatusThreadId,
     this.promptStatusText,
     this.promptStatusSteps = const <String>[],
-    this.promptDangerMode = false,
+    this.promptLastAgentTrace,
+    this.promptDangerMode = true,
     this.notificationPreferences = ForgeNotificationPreferences.defaults,
-    this.wallet = ForgeReleaseConfig.environment == 'production'
-        ? const ForgeTokenWallet(
-            planName: 'Pro mobile review',
-            balance: 0,
-            monthlyAllowance: 0,
-            spentThisWeek: 0,
-            nextReset: 'Not set',
-            currencySymbol: 'tokens',
-          )
-        : const ForgeTokenWallet(
-            planName: 'Test Unlimited',
-            balance: _testWalletBalance,
-            monthlyAllowance: _testWalletBalance,
-            spentThisWeek: 0,
-            nextReset: 'Testing mode',
-            currencySymbol: 'tokens',
-          ),
+    this.wallet = _defaultWallet,
     this.selectedRepository,
     this.selectedBranch,
     this.selectedFile,
@@ -73,6 +65,7 @@ class ForgeWorkspaceState {
   final String? promptStatusThreadId;
   final String? promptStatusText;
   final List<String> promptStatusSteps;
+  final ForgePromptAgentTrace? promptLastAgentTrace;
   final bool promptDangerMode;
   final ForgeNotificationPreferences notificationPreferences;
   final ForgeTokenWallet wallet;
@@ -109,6 +102,7 @@ class ForgeWorkspaceState {
     String? promptStatusThreadId,
     String? promptStatusText,
     List<String>? promptStatusSteps,
+    ForgePromptAgentTrace? promptLastAgentTrace,
     bool? promptDangerMode,
     ForgeNotificationPreferences? notificationPreferences,
     ForgeTokenWallet? wallet,
@@ -158,6 +152,7 @@ class ForgeWorkspaceState {
       promptStatusSteps: clearPromptStatus
           ? const <String>[]
           : (promptStatusSteps ?? this.promptStatusSteps),
+      promptLastAgentTrace: promptLastAgentTrace ?? this.promptLastAgentTrace,
       promptDangerMode: promptDangerMode ?? this.promptDangerMode,
       notificationPreferences:
           notificationPreferences ?? this.notificationPreferences,

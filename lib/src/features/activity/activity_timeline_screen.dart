@@ -39,50 +39,70 @@ class ActivityTimelineScreen extends StatelessWidget {
                         ...events.map(
                           (event) => Padding(
                             padding: const EdgeInsets.only(bottom: 12),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 42,
-                                  height: 42,
-                                  decoration: BoxDecoration(
-                                    color: event.accent.withValues(alpha: 0.14),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Icon(
-                                    event.icon,
-                                    color: event.accent,
-                                    size: 18,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        event.title,
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.labelLarge,
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                final compact = constraints.maxWidth < 360;
+                                return Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      width: 42,
+                                      height: 42,
+                                      decoration: BoxDecoration(
+                                        color: event.accent.withValues(
+                                          alpha: 0.14,
+                                        ),
+                                        borderRadius: BorderRadius.circular(12),
                                       ),
-                                      const SizedBox(height: 4),
+                                      child: Icon(
+                                        event.icon,
+                                        color: event.accent,
+                                        size: 18,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            event.title,
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.labelLarge,
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            event.subtitle,
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.bodySmall,
+                                          ),
+                                          if (compact) ...[
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              event.timestamp,
+                                              style: Theme.of(
+                                                context,
+                                              ).textTheme.labelMedium,
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                    if (!compact) ...[
+                                      const SizedBox(width: 12),
                                       Text(
-                                        event.subtitle,
+                                        event.timestamp,
                                         style: Theme.of(
                                           context,
-                                        ).textTheme.bodySmall,
+                                        ).textTheme.labelMedium,
                                       ),
                                     ],
-                                  ),
-                                ),
-                                Text(
-                                  event.timestamp,
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.labelMedium,
-                                ),
-                              ],
+                                  ],
+                                );
+                              },
                             ),
                           ),
                         ),

@@ -41,33 +41,28 @@ class DiffReviewScreen extends StatelessWidget {
                           style: Theme.of(context).textTheme.bodySmall,
                         )
                       else
-                        Row(
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Expanded(
-                              child: ForgeSecondaryButton(
-                                label: 'Reject',
-                                icon: Icons.close_rounded,
-                                onPressed: () => _reject(context),
-                                expanded: true,
-                              ),
+                            ForgeSecondaryButton(
+                              label: 'Reject',
+                              icon: Icons.close_rounded,
+                              onPressed: () => _reject(context),
+                              expanded: true,
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: ForgeSecondaryButton(
-                                label: 'Edit',
-                                icon: Icons.edit_rounded,
-                                onPressed: () => Navigator.of(context).pop(),
-                                expanded: true,
-                              ),
+                            const SizedBox(height: 10),
+                            ForgeSecondaryButton(
+                              label: 'Edit',
+                              icon: Icons.edit_rounded,
+                              onPressed: () => Navigator.of(context).pop(),
+                              expanded: true,
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: ForgePrimaryButton(
-                                label: 'Approve',
-                                icon: Icons.check_rounded,
-                                onPressed: () => _approve(context),
-                                expanded: true,
-                              ),
+                            const SizedBox(height: 10),
+                            ForgePrimaryButton(
+                              label: 'Approve',
+                              icon: Icons.check_rounded,
+                              onPressed: () => _approve(context),
+                              expanded: true,
                             ),
                           ],
                         ),
@@ -76,53 +71,65 @@ class DiffReviewScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 if (change != null) ...[
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: ForgePanel(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Before',
-                                style: Theme.of(context).textTheme.titleMedium,
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final stackPanels = constraints.maxWidth < 900;
+                      final beforePanel = ForgePanel(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Before',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 12),
+                            ForgeCodeBlock(
+                              lines: before,
+                              lineColors: List<Color?>.filled(
+                                before.length,
+                                ForgePalette.error.withValues(alpha: 0.92),
                               ),
-                              const SizedBox(height: 12),
-                              ForgeCodeBlock(
-                                lines: before,
-                                lineColors: List<Color?>.filled(
-                                  before.length,
-                                  ForgePalette.error.withValues(alpha: 0.92),
-                                ),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ForgePanel(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'After',
-                                style: Theme.of(context).textTheme.titleMedium,
+                      );
+                      final afterPanel = ForgePanel(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'After',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 12),
+                            ForgeCodeBlock(
+                              lines: after,
+                              lineColors: List<Color?>.filled(
+                                after.length,
+                                ForgePalette.success.withValues(alpha: 0.94),
                               ),
-                              const SizedBox(height: 12),
-                              ForgeCodeBlock(
-                                lines: after,
-                                lineColors: List<Color?>.filled(
-                                  after.length,
-                                  ForgePalette.success.withValues(alpha: 0.94),
-                                ),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
+                      );
+                      if (stackPanels) {
+                        return Column(
+                          children: [
+                            beforePanel,
+                            const SizedBox(height: 12),
+                            afterPanel,
+                          ],
+                        );
+                      }
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: beforePanel),
+                          const SizedBox(width: 12),
+                          Expanded(child: afterPanel),
+                        ],
+                      );
+                    },
                   ),
                   const SizedBox(height: 16),
                   ForgePanel(

@@ -39,10 +39,6 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    match /users/{userId}/providerTokens/{providerId} {
-      allow read, write: if false;
-    }
-
     match /wallets/{userId} {
       allow read, write: if isOwner(userId);
     }
