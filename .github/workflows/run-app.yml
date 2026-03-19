@@ -14,24 +14,66 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Replace this with your stack setup (Flutter, Node, etc.)
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install dependencies
+      - name: Setup Flutter
+        if: ${{ hashFiles('pubspec.yaml') != '' }}
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install Node dependencies
+        if: ${{ hashFiles('package.json') != '' }}
         run: |
           if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; fi
 
-      # Replace this with your app run command.
-      # Example: npm run test:e2e or flutter test integration_test
       - name: Run app / tests and capture logs
+        shell: bash
         run: |
+          set -eo pipefail
           mkdir -p artifacts
+          mkdir -p artifacts/screenshots
           echo "Running app workflow on platform=${{ github.event.inputs.platform }}" | tee artifacts/run.log
-          # Example command (replace): npm run test:e2e 2>&1 | tee -a artifacts/run.log
-          echo "TODO: replace with actual run command" | tee -a artifacts/run.log
+
+          if [ -f pubspec.yaml ]; then
+            flutter pub get 2>&1 | tee -a artifacts/run.log
+            case "${{ github.event.inputs.platform }}" in
+              web)
+                flutter test 2>&1 | tee -a artifacts/run.log
+                flutter build web 2>&1 | tee -a artifacts/run.log
+                ;;
+              android)
+                flutter test 2>&1 | tee -a artifacts/run.log
+                flutter build apk --debug 2>&1 | tee -a artifacts/run.log
+                ;;
+              ios)
+                echo "iOS builds require a macOS runner; running Flutter tests on Ubuntu instead." | tee -a artifacts/run.log
+                flutter test 2>&1 | tee -a artifacts/run.log
+                ;;
+              *)
+                flutter test 2>&1 | tee -a artifacts/run.log
+                ;;
+            esac
+            exit 0
+          fi
+
+          if [ -f package.json ]; then
+            if npm run | grep -q " test"; then
+              npm test 2>&1 | tee -a artifacts/run.log
+            elif npm run | grep -q " build"; then
+              npm run build 2>&1 | tee -a artifacts/run.log
+            else
+              echo "No supported npm script found. Add a test or build script for this workflow." | tee -a artifacts/run.log
+              exit 1
+            fi
+            exit 0
+          fi
+
+          echo "No supported app stack detected. Commit a project-specific run command to .github/workflows/run-app.yml." | tee -a artifacts/run.log
+          exit 1
 
       # Save screenshots into artifacts/screenshots in your run command.
       - name: Upload logs and screenshots
