@@ -217,6 +217,10 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
     value = value.copyWith(promptDangerMode: enabled);
   }
 
+  void setRepoExecutionDeepMode(bool enabled) {
+    value = value.copyWith(repoExecutionDeepMode: enabled);
+  }
+
   void addPromptAssistantMessage(String text) {
     final thread = currentPromptThread;
     if (thread == null || text.trim().isEmpty) return;
@@ -275,109 +279,27 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
     );
   }
 
-  List<ForgeFileNode> _flattenFiles(List<ForgeFileNode> nodes) {
-    final out = <ForgeFileNode>[];
-    void walk(List<ForgeFileNode> input) {
-      for (final node in input) {
-        if (node.isFolder) {
-          walk(node.children);
-        } else {
-          out.add(node);
-        }
-      }
-    }
-
-    walk(nodes);
-    return out;
-  }
-
-  List<String> _promptTerms(String prompt, List<ForgePromptMessage> history) {
-    final recentUser = history
-        .where((m) => m.role == 'user')
-        .toList();
-    final seed = [
-      prompt.toLowerCase(),
-      ...recentUser
-          .skip(recentUser.length > 3 ? recentUser.length - 3 : 0)
-          .map((m) => m.text.toLowerCase()),
-    ].join(' ');
-    final stop = <String>{
-      'the',
-      'and',
-      'for',
-      'with',
-      'that',
-      'this',
-      'from',
-      'into',
-      'your',
-      'you',
-      'please',
-      'just',
-      'what',
-      'where',
-      'when',
-      'repo',
-      'repository',
-      'file',
-      'files',
-      'code',
-      'app',
-      'ai',
-    };
-    final parts = seed
-        .split(RegExp(r'[^a-z0-9_./-]+'))
-        .map((s) => s.trim())
-        .where((s) => s.length >= 3 && !stop.contains(s))
-        .toSet()
-        .toList();
-    return parts.take(16).toList();
-  }
-
-  int _filePromptScore(String path, List<String> terms) {
-    final p = path.toLowerCase();
-    var score = 0;
-    for (final t in terms) {
-      if (p.contains(t)) {
-        score += 8;
-      }
-      if (p.endsWith('/$t') || p.endsWith(t)) {
-        score += 10;
-      }
-    }
-    if (p.endsWith('.lock') || p.endsWith('.png') || p.contains('/build/')) {
-      score -= 2;
-    }
-    return score;
-  }
-
-  List<String> _extractLikelyEditedPaths(String reply) {
-    if (reply.trim().isEmpty) {
-      return const <String>[];
-    }
-    final pattern = RegExp(r'`([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)`');
-    final out = <String>[];
-    for (final m in pattern.allMatches(reply)) {
-      final path = m.group(1)?.trim() ?? '';
-      if (path.isEmpty) {
-        continue;
-      }
-      if (out.contains(path)) {
-        continue;
-      }
-      out.add(path);
-      if (out.length >= 12) {
-        break;
-      }
-    }
-    return out;
-  }
-
-  String _truncateText(String input, int maxChars) {
-    if (input.length <= maxChars) {
-      return input;
-    }
-    return '${input.substring(0, maxChars - 1)}...';
+  ForgePromptAgentTrace _traceFromExecutionSession(
+    ForgeRepoExecutionSession session, {
+    required String threadId,
+  }) {
+    return ForgePromptAgentTrace(
+      threadId: threadId,
+      recordedAt: DateTime.now(),
+      steps: session.steps,
+      inspectedFiles: session.selectedFiles,
+      proposedEditFiles: session.edits.map((edit) => edit.path).toList(),
+      plannedEdits: session.edits
+          .map(
+            (edit) => ForgePromptPlannedEdit(
+              path: edit.path,
+              action: edit.action,
+              rationale: edit.summary,
+            ),
+          )
+          .toList(),
+      summary: session.summary,
+    );
   }
 
   void cancelPromptRun() {
@@ -427,9 +349,6 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
     if (trimmed.isEmpty) return '';
     final requestId = ++_promptRequestNonce;
     _activePromptRequestId = requestId;
-    final history = thread.messages.length > 12
-        ? thread.messages.sublist(thread.messages.length - 12)
-        : List<ForgePromptMessage>.from(thread.messages);
 
     final userMsg = ForgePromptMessage(
       id: _newPromptId(),
@@ -465,70 +384,34 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
     }
 
     try {
-      _updatePromptProgress(thread.id, 'Gathering repository context');
-      final flatFiles = _flattenFiles(value.files);
-      final terms = _promptTerms(trimmed, history);
-      final rankedFiles = flatFiles
-          .map((f) => (path: f.path, score: _filePromptScore(f.path, terms)))
-          .where((row) => row.score > 0)
-          .toList()
-        ..sort((a, b) => b.score.compareTo(a.score));
-      final inspectedFiles = rankedFiles
-          .take(8)
-          .map((r) => r.path)
-          .toList(growable: false);
-      if (rankedFiles.isNotEmpty) {
-        final inspectCount = rankedFiles.length >= 3 ? 3 : rankedFiles.length;
-        for (var i = 0; i < inspectCount; i++) {
-          _updatePromptProgress(
-            thread.id,
-            'Inspecting ${rankedFiles[i].path}',
-          );
-          await Future<void>.delayed(const Duration(milliseconds: 90));
-        }
-      } else if (flatFiles.isNotEmpty) {
-        _updatePromptProgress(
-          thread.id,
-          'Inspecting ${flatFiles.first.path}',
+      final repoId =
+          thread.repoId ??
+          value.selectedRepository?.id ??
+          (value.repositories.length == 1 ? value.repositories.first.id : null);
+      if (repoId == null) {
+        throw StateError(
+          'Select a repository before running repo-aware code execution.',
         );
       }
-      _updatePromptProgress(thread.id, 'Drafting implementation approach');
-      _updatePromptProgress(thread.id, 'Sending request to OpenAI');
-      final result = await repo.askRepo(
-        repoId: thread.repoId,
+      _updatePromptProgress(thread.id, 'Indexing repository');
+      _updatePromptProgress(thread.id, 'Retrieving relevant files');
+      _updatePromptProgress(thread.id, 'Generating structured diff');
+      final session = await repo.executeRepoTask(
+        repoId: repoId,
         prompt: trimmed,
-        provider: 'openai',
-        history: history,
-        media: media,
-        dangerMode: value.promptDangerMode,
+        currentFilePath: value.currentDocument?.path,
+        deepMode: value.repoExecutionDeepMode,
       );
-      var reply = result.reply;
-      if (result.appliedEdits.isNotEmpty) {
-        reply =
-            '$reply\n\nSaved ${result.appliedEdits.length} file(s) to this repo in the app only — '
-            'nothing has been committed or pushed to Git yet. Use the banner on Prompt to commit and push, '
-            'or open the Code tab to review files first.';
-      }
+      final reply =
+          '${session.summary}\n\nReview ${session.edits.length} file(s) in Code, then approve to apply them to the working copy.';
       if (_cancelledPromptRequestIds.remove(requestId)) {
         return '';
       }
       if (_activePromptRequestId != requestId) {
         return '';
       }
-      _updatePromptProgress(thread.id, 'Finalizing response');
-      final proposedEditFiles = _extractLikelyEditedPaths(reply);
-      final trace = ForgePromptAgentTrace(
-        threadId: thread.id,
-        recordedAt: DateTime.now(),
-        steps: List<String>.from(value.promptStatusSteps),
-        inspectedFiles: result.inspectedFiles.isNotEmpty
-            ? result.inspectedFiles
-            : inspectedFiles,
-        proposedEditFiles: proposedEditFiles,
-        plannedEdits: result.plannedEdits,
-        appliedEdits: result.appliedEdits,
-        summary: _truncateText(reply, 420),
-      );
+      _updatePromptProgress(thread.id, 'Preparing review session');
+      final trace = _traceFromExecutionSession(session, threadId: thread.id);
       final assistantMsg = ForgePromptMessage(
         id: _newPromptId(),
         role: 'assistant',
@@ -539,6 +422,8 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
         isPromptLoading: false,
         clearPromptStatus: true,
         promptLastAgentTrace: trace,
+        currentExecutionSession: session,
+        clearCurrentChangeRequest: true,
         promptThreads: value.promptThreads.map((t) {
           if (t.id != thread.id) return t;
           return t.copyWith(
@@ -1154,6 +1039,7 @@ jobs:
       clearSelectedFile: true,
       clearCurrentDocument: true,
       clearCurrentChangeRequest: true,
+      clearCurrentExecutionSession: true,
     );
     await _bindFiles();
   }
@@ -1376,6 +1262,7 @@ jobs:
         clearCurrentDocument: true,
         clearSelectedFile: true,
         clearCurrentChangeRequest: true,
+        clearCurrentExecutionSession: true,
       );
     }
   }
@@ -1417,24 +1304,31 @@ jobs:
     }
     value = value.copyWith(isRunningAi: true, clearError: true);
     try {
-      final changeRequest = await _repository!.runAiAction(
-        ownerId: _requireOwnerId(),
+      final session = await _repository!.executeRepoTask(
         repoId: selectedRepository.id,
-        filePath: currentDocument.path,
-        provider: provider,
         prompt: prompt,
+        currentFilePath: currentDocument.path,
+        deepMode: value.repoExecutionDeepMode,
       );
       value = value.copyWith(
         isRunningAi: false,
-        currentChangeRequest: changeRequest,
+        currentExecutionSession: session,
+        clearCurrentChangeRequest: true,
+        promptLastAgentTrace:
+            _traceFromExecutionSession(
+              session,
+              threadId: value.selectedPromptThreadId ?? 'editor',
+            ),
       );
       unawaited(
         _telemetry.logEvent(
-          'forge_ai_suggestion_created',
+          'forge_repo_execution_created',
           parameters: <String, Object?>{
             'provider': provider.name,
-            'estimated_tokens': changeRequest.estimatedTokens,
+            'estimated_tokens': session.estimatedTokens,
             'path': currentDocument.path,
+            'edit_count': session.edits.length,
+            'mode': session.mode,
           },
         ),
       );
@@ -1452,6 +1346,106 @@ jobs:
       );
       rethrow;
     }
+  }
+
+  Future<void> approveCurrentExecution() async {
+    final session = value.currentExecutionSession;
+    final currentDocument = value.currentDocument;
+    if (session == null) {
+      return;
+    }
+    value = value.copyWith(isSavingFile: true, clearError: true);
+    try {
+      await _repository!.applyRepoExecution(
+        repoId: session.repoId,
+        sessionId: session.id,
+      );
+      ForgeRepoExecutionFileChange? currentEdit;
+      if (currentDocument != null) {
+        for (final edit in session.edits) {
+          if (edit.path == currentDocument.path) {
+            currentEdit = edit;
+            break;
+          }
+        }
+      }
+      value = value.copyWith(
+        isSavingFile: false,
+        currentDocument: currentEdit == null
+            ? currentDocument
+            : (currentEdit.action == 'delete'
+                  ? null
+                  : currentDocument?.copyWith(
+                      content: currentEdit.afterContent,
+                      originalContent: currentEdit.beforeContent,
+                      updatedAt: DateTime.now(),
+                    )),
+        clearSelectedFile:
+            currentEdit != null && currentEdit.action == 'delete',
+        clearCurrentExecutionSession: true,
+      );
+      final trace = value.promptLastAgentTrace;
+      if (trace != null) {
+        value = value.copyWith(
+          promptLastAgentTrace: ForgePromptAgentTrace(
+            threadId: trace.threadId,
+            recordedAt: DateTime.now(),
+            steps: trace.steps,
+            inspectedFiles: trace.inspectedFiles,
+            proposedEditFiles: trace.proposedEditFiles,
+            plannedEdits: trace.plannedEdits,
+            appliedEdits: session.edits
+                .map(
+                  (edit) => ForgePromptAppliedEdit(
+                    path: edit.path,
+                    action: edit.action,
+                  ),
+                )
+                .toList(),
+            summary: trace.summary,
+          ),
+        );
+      }
+      unawaited(
+        _telemetry.logEvent(
+          'forge_repo_execution_applied',
+          parameters: <String, Object?>{
+            'estimated_tokens': session.estimatedTokens,
+            'edit_count': session.edits.length,
+          },
+        ),
+      );
+    } catch (error) {
+      value = value.copyWith(
+        isSavingFile: false,
+        errorMessage: forgeUserFriendlyMessage(error),
+      );
+      unawaited(
+        _telemetry.recordError(
+          error,
+          StackTrace.current,
+          reason: 'workspace_approve_execution',
+        ),
+      );
+      rethrow;
+    }
+  }
+
+  Future<void> rejectCurrentExecution() async {
+    final session = value.currentExecutionSession;
+    if (session == null) {
+      return;
+    }
+    value = value.copyWith(clearCurrentExecutionSession: true);
+    unawaited(
+      _telemetry.logEvent(
+        'forge_repo_execution_rejected',
+        parameters: <String, Object?>{
+          'estimated_tokens': session.estimatedTokens,
+          'edit_count': session.edits.length,
+        },
+      ),
+    );
   }
 
   Future<void> approveCurrentChange() async {
@@ -1557,18 +1551,7 @@ jobs:
         repoId: selectedRepository.id,
         provider: selectedRepository.providerLabel.toLowerCase(),
         actionType: actionType,
-        fileChanges:
-            actionType == ForgeGitActionType.commit &&
-                value.currentDocument != null
-            ? <Map<String, String?>>[
-                {
-                  'path': value.currentDocument!.path,
-                  'content': value.currentDocument!.content,
-                  if (value.currentDocument!.sha != null)
-                    'sha': value.currentDocument!.sha,
-                },
-              ]
-            : const <Map<String, String?>>[],
+        fileChanges: const <Map<String, String?>>[],
         branchName: draft.branchName,
         commitMessage: draft.commitMessage,
         pullRequestTitle: draft.pullRequestTitle,

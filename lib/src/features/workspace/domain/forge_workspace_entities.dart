@@ -95,6 +95,55 @@ class ForgeChangeRequest {
   bool get isDraft => status == 'draft';
 }
 
+class ForgeRepoExecutionFileChange {
+  const ForgeRepoExecutionFileChange({
+    required this.path,
+    required this.action,
+    required this.summary,
+    required this.beforeContent,
+    required this.afterContent,
+    required this.diffLines,
+  });
+
+  final String path;
+  final String action;
+  final String summary;
+  final String beforeContent;
+  final String afterContent;
+  final List<ForgeDiffLine> diffLines;
+}
+
+class ForgeRepoExecutionSession {
+  const ForgeRepoExecutionSession({
+    required this.id,
+    required this.repoId,
+    required this.prompt,
+    required this.mode,
+    required this.summary,
+    required this.estimatedTokens,
+    required this.selectedFiles,
+    required this.dependencyFiles,
+    required this.steps,
+    required this.actionType,
+    required this.edits,
+  });
+
+  final String id;
+  final String repoId;
+  final String prompt;
+  final String mode;
+  final String summary;
+  final int estimatedTokens;
+  final List<String> selectedFiles;
+  final List<String> dependencyFiles;
+  final List<String> steps;
+  final String actionType;
+  final List<ForgeRepoExecutionFileChange> edits;
+
+  bool get isDeepMode => mode == 'deep';
+  bool get hasEdits => edits.isNotEmpty;
+}
+
 class ForgeConnectRepositoryDraft {
   const ForgeConnectRepositoryDraft({
     required this.provider,

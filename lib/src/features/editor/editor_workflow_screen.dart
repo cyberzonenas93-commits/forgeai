@@ -599,7 +599,7 @@ class _EditorWorkflowScreenState extends State<EditorWorkflowScreen> {
                                       : () => _save(context),
                                 ),
                                 ForgeSecondaryButton(
-                                  label: 'AI edit (uses tokens)',
+                                  label: 'Run repo task',
                                   icon: Icons.auto_awesome_rounded,
                                   onPressed: document == null
                                       ? null
@@ -613,7 +613,9 @@ class _EditorWorkflowScreenState extends State<EditorWorkflowScreen> {
                                 ForgeSecondaryButton(
                                   label: 'Diff',
                                   icon: Icons.compare_arrows_rounded,
-                                  onPressed: state.currentChangeRequest == null
+                                  onPressed:
+                                      state.currentChangeRequest == null &&
+                                          state.currentExecutionSession == null
                                       ? null
                                       : () => _open(
                                           context,
@@ -667,10 +669,12 @@ class _EditorWorkflowScreenState extends State<EditorWorkflowScreen> {
                                       child: ForgeAiIndicator(
                                         label: document == null
                                             ? 'Select a file to begin'
-                                            : (state.currentChangeRequest ==
-                                                      null
-                                                  ? 'Describe your change in plain language, then use Ask AI to edit'
-                                                  : 'AI diff ready for review'),
+                                            : ((state.currentExecutionSession ==
+                                                        null &&
+                                                    state.currentChangeRequest ==
+                                                        null)
+                                                ? 'Describe the repo change you want, then run the agent'
+                                                : 'Diff ready for review'),
                                       ),
                                     ),
                                     const Divider(height: 1),

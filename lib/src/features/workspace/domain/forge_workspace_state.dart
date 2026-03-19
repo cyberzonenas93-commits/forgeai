@@ -35,6 +35,7 @@ class ForgeWorkspaceState {
     this.promptStatusSteps = const <String>[],
     this.promptLastAgentTrace,
     this.promptDangerMode = true,
+    this.repoExecutionDeepMode = false,
     this.notificationPreferences = ForgeNotificationPreferences.defaults,
     this.wallet = _defaultWallet,
     this.selectedRepository,
@@ -42,6 +43,7 @@ class ForgeWorkspaceState {
     this.selectedFile,
     this.currentDocument,
     this.currentChangeRequest,
+    this.currentExecutionSession,
     this.errorMessage,
   });
 
@@ -67,6 +69,7 @@ class ForgeWorkspaceState {
   final List<String> promptStatusSteps;
   final ForgePromptAgentTrace? promptLastAgentTrace;
   final bool promptDangerMode;
+  final bool repoExecutionDeepMode;
   final ForgeNotificationPreferences notificationPreferences;
   final ForgeTokenWallet wallet;
   final ForgeRepository? selectedRepository;
@@ -74,6 +77,7 @@ class ForgeWorkspaceState {
   final ForgeFileNode? selectedFile;
   final ForgeFileDocument? currentDocument;
   final ForgeChangeRequest? currentChangeRequest;
+  final ForgeRepoExecutionSession? currentExecutionSession;
   final String? errorMessage;
 
   bool get hasRepositories => repositories.isNotEmpty;
@@ -104,6 +108,7 @@ class ForgeWorkspaceState {
     List<String>? promptStatusSteps,
     ForgePromptAgentTrace? promptLastAgentTrace,
     bool? promptDangerMode,
+    bool? repoExecutionDeepMode,
     ForgeNotificationPreferences? notificationPreferences,
     ForgeTokenWallet? wallet,
     ForgeRepository? selectedRepository,
@@ -111,12 +116,14 @@ class ForgeWorkspaceState {
     ForgeFileNode? selectedFile,
     ForgeFileDocument? currentDocument,
     ForgeChangeRequest? currentChangeRequest,
+    ForgeRepoExecutionSession? currentExecutionSession,
     String? errorMessage,
     bool clearRepository = false,
     bool clearSelectedBranch = false,
     bool clearSelectedFile = false,
     bool clearCurrentDocument = false,
     bool clearCurrentChangeRequest = false,
+    bool clearCurrentExecutionSession = false,
     bool clearError = false,
     bool clearSelectedPromptThread = false,
     bool clearPromptStatus = false,
@@ -154,6 +161,8 @@ class ForgeWorkspaceState {
           : (promptStatusSteps ?? this.promptStatusSteps),
       promptLastAgentTrace: promptLastAgentTrace ?? this.promptLastAgentTrace,
       promptDangerMode: promptDangerMode ?? this.promptDangerMode,
+      repoExecutionDeepMode:
+          repoExecutionDeepMode ?? this.repoExecutionDeepMode,
       notificationPreferences:
           notificationPreferences ?? this.notificationPreferences,
       wallet: wallet ?? this.wallet,
@@ -172,6 +181,9 @@ class ForgeWorkspaceState {
       currentChangeRequest: clearCurrentChangeRequest
           ? null
           : (currentChangeRequest ?? this.currentChangeRequest),
+      currentExecutionSession: clearCurrentExecutionSession
+          ? null
+          : (currentExecutionSession ?? this.currentExecutionSession),
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
     );
   }

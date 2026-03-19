@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/forge_palette.dart';
 import '../../shared/forge_user_friendly_error.dart';
 import '../../shared/widgets/forge_widgets.dart';
+import '../diff/diff_review_screen.dart';
 import '../workspace/application/forge_workspace_controller.dart';
 import '../workspace/domain/forge_workspace_entities.dart';
 
@@ -29,8 +30,9 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
     return ValueListenableBuilder(
       valueListenable: widget.controller,
       builder: (context, state, _) {
-        final estimate = (_promptController.text.length / 3).ceil() + 240;
-        final changeRequest = state.currentChangeRequest;
+        final estimate = (_promptController.text.length / 3).ceil() +
+            (state.repoExecutionDeepMode ? 420 : 240);
+        final session = state.currentExecutionSession;
         final balance = state.wallet.balance.toInt();
         return Scaffold(
           backgroundColor: Colors.transparent,
@@ -43,11 +45,31 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       ForgeSectionHeader(
-                        title: 'Ask in plain language',
+                        title: 'Repo-aware execution',
                         subtitle:
-                            'Describe what you want in free-form English. The AI can rewrite the entire open file or draft full content for that path (including new files once the path is open). Tokens are charged when a suggestion is generated successfully. Wallet: $balance tokens.',
+                            'Describe the real repository change you want. The agent will retrieve relevant files, prepare a multi-file diff, and wait for approval before anything is applied. Wallet: $balance tokens.',
                       ),
                       const SizedBox(height: 16),
+                      SegmentedButton<bool>(
+                        segments: const <ButtonSegment<bool>>[
+                          ButtonSegment<bool>(
+                            value: false,
+                            label: Text('Normal'),
+                            icon: Icon(Icons.flash_on_rounded),
+                          ),
+                          ButtonSegment<bool>(
+                            value: true,
+                            label: Text('Deep'),
+                            icon: Icon(Icons.psychology_rounded),
+                          ),
+                        ],
+                        selected: <bool>{state.repoExecutionDeepMode},
+                        onSelectionChanged: (selection) {
+                          widget.controller.setRepoExecutionDeepMode(
+                            selection.contains(true),
+                          );
+                        },
+                      ),
                       const SizedBox(height: 16),
                       TextField(
                         controller: _promptController,
@@ -55,7 +77,7 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                         decoration: const InputDecoration(
                           labelText: 'What should change?',
                           hintText:
-                              'e.g. small edits, full rewrites, or "Scaffold a new widget in this file"',
+                              'e.g. add authentication to this app, wire Git commit staging, or refactor repository retrieval',
                         ),
                         onChanged: (_) => setState(() {}),
                       ),
@@ -65,8 +87,8 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                           Expanded(
                             child: ForgePrimaryButton(
                               label: state.isRunningAi
-                                  ? 'Processing...'
-                                  : 'Apply my instructions',
+                                  ? 'Generating...'
+                                  : 'Generate repo diff',
                               icon: Icons.auto_awesome_rounded,
                               onPressed: state.isRunningAi
                                   ? null
@@ -79,7 +101,7 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                       const SizedBox(height: 12),
                       if (state.isRunningAi) const ForgeAiIndicator(),
                       Text(
-                        '~$estimate tokens estimated • charged on success • review the diff before committing',
+                        '~$estimate tokens estimated • ${state.repoExecutionDeepMode ? 'deep mode loads more files' : 'normal mode stays fast'} • review before apply/commit',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: ForgePalette.textSecondary,
                         ),
@@ -93,21 +115,51 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Suggested output',
+                        'Prepared execution',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 12),
-                      if (changeRequest == null)
+                      if (session == null)
                         const ForgeCodeBlock(
                           lines: [
-                            'No suggestion yet.',
-                            'Describe the change you want in plain English above, then tap Apply.',
+                            'No execution session yet.',
+                            'Describe the repo change you want, then generate a diff.',
                           ],
                         )
-                      else
-                        ForgeCodeBlock(
-                          lines: changeRequest.afterContent.split('\n'),
+                      else ...[
+                        Text(
+                          session.summary,
+                          style: Theme.of(context).textTheme.bodyMedium,
                         ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ForgePill(
+                              label: '${session.edits.length} files',
+                              icon: Icons.description_rounded,
+                            ),
+                            ForgePill(
+                              label: session.isDeepMode ? 'Deep mode' : 'Normal mode',
+                              icon: Icons.tune_rounded,
+                            ),
+                            ForgePill(
+                              label: '${session.estimatedTokens} tokens',
+                              icon: Icons.token_rounded,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        ForgeCodeBlock(
+                          lines: [
+                            'Files prepared for review:',
+                            ...session.edits.map(
+                              (edit) => '- ${edit.action.toUpperCase()} ${edit.path}',
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -128,9 +180,9 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
       if (!context.mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('AI change generated. Review the diff next.'),
+      await Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => DiffReviewScreen(controller: widget.controller),
         ),
       );
     } catch (error) {

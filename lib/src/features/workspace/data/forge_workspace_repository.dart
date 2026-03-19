@@ -322,6 +322,9 @@ class ForgeWorkspaceRepository {
     }
 
     final data = snapshot.data() ?? const <String, dynamic>{};
+    if (data['isDeleted'] as bool? ?? false) {
+      return null;
+    }
     return ForgeFileDocument(
       repoId: repoId,
       path: (data['path'] as String?) ?? filePath,
@@ -345,8 +348,12 @@ class ForgeWorkspaceRepository {
       'path': document.path,
       'language': document.language,
       'content': document.content,
+      'contentPreview': document.content.length > 1200
+          ? '${document.content.substring(0, 1199)}...'
+          : document.content,
       'baseContent': document.originalContent,
       'sha': document.sha,
+      'isDeleted': false,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
@@ -370,7 +377,10 @@ class ForgeWorkspaceRepository {
       'path': normalizedPath,
       'language': _languageFromPath(normalizedPath),
       'content': content,
+      'contentPreview':
+          content.length > 1200 ? '${content.substring(0, 1199)}...' : content,
       'baseContent': content,
+      'isDeleted': false,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
     await _writeActivity(
@@ -394,6 +404,7 @@ class ForgeWorkspaceRepository {
       'language': 'Text',
       'content': '',
       'baseContent': '',
+      'isDeleted': false,
       'updatedAt': FieldValue.serverTimestamp(),
       'isFolderMarker': true,
     }, SetOptions(merge: true));
@@ -525,6 +536,101 @@ class ForgeWorkspaceRepository {
       return changeRequest;
     }
     throw StateError('Unable to load generated change request.');
+  }
+
+  Future<ForgeRepoExecutionSession> executeRepoTask({
+    required String repoId,
+    required String prompt,
+    String? currentFilePath,
+    bool deepMode = false,
+  }) async {
+    final callable = _functions.httpsCallable('executeRepoTask');
+    final result = await callable.call<Map<Object?, Object?>>({
+      'repoId': repoId,
+      'prompt': prompt,
+      if (currentFilePath != null && currentFilePath.trim().isNotEmpty)
+        'currentFilePath': currentFilePath.trim(),
+      'deepMode': deepMode,
+      'provider': 'openai',
+    });
+    final data = result.data;
+    final sessionId = data['sessionId'] as String?;
+    if (sessionId == null || sessionId.isEmpty) {
+      throw StateError('Repo execution did not include a session id.');
+    }
+    final selectedFiles = <String>[];
+    final selectedRaw = data['selectedFiles'];
+    if (selectedRaw is List) {
+      for (final item in selectedRaw) {
+        if (item is String && item.trim().isNotEmpty) {
+          selectedFiles.add(item.trim());
+        }
+      }
+    }
+    final dependencyFiles = <String>[];
+    final dependencyRaw = data['dependencyFiles'];
+    if (dependencyRaw is List) {
+      for (final item in dependencyRaw) {
+        if (item is String && item.trim().isNotEmpty) {
+          dependencyFiles.add(item.trim());
+        }
+      }
+    }
+    final steps = <String>[];
+    final stepsRaw = data['steps'];
+    if (stepsRaw is List) {
+      for (final item in stepsRaw) {
+        if (item is String && item.trim().isNotEmpty) {
+          steps.add(item.trim());
+        }
+      }
+    }
+    final edits = <ForgeRepoExecutionFileChange>[];
+    final editsRaw = data['edits'];
+    if (editsRaw is List) {
+      for (final item in editsRaw) {
+        if (item is! Map) {
+          continue;
+        }
+        final map = item.map((key, value) => MapEntry('$key', value));
+        edits.add(
+          ForgeRepoExecutionFileChange(
+            path: (map['path'] as String?) ?? '',
+            action: (map['action'] as String?) ?? 'modify',
+            summary: (map['summary'] as String?) ?? 'Prepared file change.',
+            beforeContent: (map['beforeContent'] as String?) ?? '',
+            afterContent: (map['afterContent'] as String?) ?? '',
+            diffLines: _diffLinesFromPayload(map['diffLines']),
+          ),
+        );
+      }
+    }
+    return ForgeRepoExecutionSession(
+      id: sessionId,
+      repoId: repoId,
+      prompt: prompt,
+      mode: (data['mode'] as String?) ?? (deepMode ? 'deep' : 'normal'),
+      summary:
+          (data['summary'] as String?) ??
+          'Prepared repo execution changes for review.',
+      estimatedTokens: (data['estimatedTokens'] as num?)?.toInt() ?? 0,
+      selectedFiles: selectedFiles,
+      dependencyFiles: dependencyFiles,
+      steps: steps,
+      actionType: (data['actionType'] as String?) ?? 'refactor_code',
+      edits: edits,
+    );
+  }
+
+  Future<void> applyRepoExecution({
+    required String repoId,
+    required String sessionId,
+  }) async {
+    final callable = _functions.httpsCallable('applyRepoExecution');
+    await callable.call({
+      'repoId': repoId,
+      'sessionId': sessionId,
+    });
   }
 
   Future<ForgeChangeRequest?> loadChangeRequest(String changeRequestId) async {
@@ -1133,6 +1239,21 @@ class ForgeWorkspaceRepository {
     );
   }
 
+  List<ForgeDiffLine> _diffLinesFromPayload(Object? raw) {
+    final payload = raw as List<dynamic>? ?? const <dynamic>[];
+    return payload
+        .whereType<Map>()
+        .map((line) {
+          final map = line.map((key, value) => MapEntry('$key', value));
+          return ForgeDiffLine(
+            prefix: (map['prefix'] as String?) ?? '+',
+            line: (map['line'] as String?) ?? '',
+            isAddition: (map['isAddition'] as bool?) ?? true,
+          );
+        })
+        .toList();
+  }
+
   ForgePromptThread _forgePromptThreadFromDoc(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) {
@@ -1165,6 +1286,9 @@ class ForgeWorkspaceRepository {
     final root = <String, _MutableFolder>{};
     for (final doc in docs) {
       final data = doc.data();
+      if (data['isDeleted'] as bool? ?? false) {
+        continue;
+      }
       final path = (data['path'] as String?) ?? Uri.decodeComponent(doc.id);
       final parts = path.split('/');
       var folders = root;

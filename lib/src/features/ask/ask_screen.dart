@@ -1010,6 +1010,9 @@ class _AskScreenState extends State<AskScreen> {
           _scrollTranscriptToEnd();
         }
         final tokenBalance = state.wallet.balance.toInt();
+        final pendingExecution = state.currentExecutionSession;
+        final showReviewBanner =
+            pendingExecution != null && pendingExecution.hasEdits;
         final pendingCommitTrace = state.promptLastAgentTrace;
         final showUncommittedBanner = pendingCommitTrace != null &&
             pendingCommitTrace.appliedEdits.isNotEmpty &&
@@ -1085,7 +1088,7 @@ class _AskScreenState extends State<AskScreen> {
                                 const SizedBox(height: 4),
                                 Text(
                                   'Each reply uses tokens ($tokenBalance available). '
-                                  'Prompt can save files here; commit & push ships them to GitHub.',
+                                  'Prompt now prepares reviewable repo diffs. Approve first, then commit & push to GitHub.',
                                   style: Theme.of(context).textTheme.labelSmall
                                       ?.copyWith(
                                         color: ForgePalette.textSecondary,
@@ -1162,10 +1165,116 @@ class _AskScreenState extends State<AskScreen> {
                       ),
                     ),
                   ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: SegmentedButton<bool>(
+                      segments: const <ButtonSegment<bool>>[
+                        ButtonSegment<bool>(
+                          value: false,
+                          label: Text('Normal'),
+                          icon: Icon(Icons.flash_on_rounded),
+                        ),
+                        ButtonSegment<bool>(
+                          value: true,
+                          label: Text('Deep'),
+                          icon: Icon(Icons.psychology_rounded),
+                        ),
+                      ],
+                      selected: <bool>{state.repoExecutionDeepMode},
+                      onSelectionChanged: (selection) {
+                        widget.controller.setRepoExecutionDeepMode(
+                          selection.contains(true),
+                        );
+                      },
+                    ),
+                  ),
                   Expanded(
                     child: Column(
                       children: [
                         const Divider(height: 1),
+                        if (showReviewBanner)
+                          Material(
+                            color:
+                                ForgePalette.success.withValues(alpha: 0.10),
+                            child: Padding(
+                              padding:
+                                  const EdgeInsets.fromLTRB(14, 12, 10, 12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Icon(
+                                        Icons.compare_arrows_rounded,
+                                        size: 22,
+                                        color: ForgePalette.success,
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Repo diff ready to review',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleSmall
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Prepared ${pendingExecution.edits.length} file change(s). Review them in Code before applying anything to the working copy.',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(
+                                                    color: ForgePalette
+                                                        .textSecondary,
+                                                  ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    alignment: WrapAlignment.end,
+                                    children: [
+                                      TextButton(
+                                        onPressed: isBusy
+                                            ? null
+                                            : () => widget.controller
+                                                .rejectCurrentExecution(),
+                                        child: const Text('Discard'),
+                                      ),
+                                      if (widget.onSwitchToEditorTab != null)
+                                        FilledButton.icon(
+                                          onPressed: isBusy
+                                              ? null
+                                              : () => widget
+                                                  .onSwitchToEditorTab!(),
+                                          icon: const Icon(
+                                            Icons.code_rounded,
+                                            size: 20,
+                                          ),
+                                          label: Text(
+                                            'Review ${pendingExecution.edits.length} files',
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         if (showUncommittedBanner)
                           Material(
                             color:
@@ -1241,7 +1350,7 @@ class _AskScreenState extends State<AskScreen> {
                                               ? null
                                               : () => widget
                                                   .onSwitchToEditorTab!(),
-                                          child: const Text('Review in Code'),
+                                          child: const Text('Review draft'),
                                         ),
                                       FilledButton.icon(
                                         onPressed: isBusy ||

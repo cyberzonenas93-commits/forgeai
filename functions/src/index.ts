@@ -40,6 +40,23 @@ import {
   type CheckActionType,
   type GitActionType,
 } from './pricing';
+import {
+  buildIndexEntryStoragePayload,
+  buildRepoIndexEntries,
+  buildRepoStructure,
+  pickDependencyCandidates,
+  rankRepoIndexEntries,
+  type RepoIndexEntry,
+  type RepoIndexFileInput,
+  type RankedRepoIndexEntry,
+} from './repo_index_service';
+import {
+  buildRepoExecutionRepairPrompt,
+  buildRepoExecutionSystemPrompt,
+  buildRepoExecutionUserPrompt,
+  parseRepoExecutionResponse,
+  summarizeRepoExecution,
+} from './repo_execution_format';
 
 initializeApp();
 
@@ -456,6 +473,19 @@ interface SuggestChangeData {
   branchName?: string;
   accessToken?: string;
   apiBaseUrl?: string;
+}
+
+interface RepoExecutionData {
+  repoId: string;
+  prompt: string;
+  provider?: ProviderName;
+  currentFilePath?: string;
+  deepMode?: boolean;
+}
+
+interface ApplyRepoExecutionData {
+  repoId: string;
+  sessionId: string;
 }
 
 interface GitFileChange {
@@ -1882,6 +1912,557 @@ function buildUnifiedDiff(
       .map(line => `${line.prefix}${line.line}`)
       .join('\n');
   return `--- a/${filePath}\n+++ b/${filePath}\n@@\n${body}`;
+}
+
+type RepoExecutionMode = 'normal' | 'deep';
+type RepoExecutionAction = 'create' | 'modify' | 'delete';
+
+interface RepoExecutionPreparedEdit {
+  path: string;
+  action: RepoExecutionAction;
+  beforeContent: string;
+  afterContent: string;
+  summary: string;
+  diffPreview: string;
+  diffLines: ReturnType<typeof buildDiffLines>;
+}
+
+interface RepoExecutionSessionResult {
+  sessionId: string;
+  mode: RepoExecutionMode;
+  summary: string;
+  estimatedTokens: number;
+  selectedFiles: string[];
+  dependencyFiles: string[];
+  steps: string[];
+  edits: RepoExecutionPreparedEdit[];
+}
+
+function normalizeRepoExecutionPath(raw: string) {
+  const normalized = normalizePromptRepoPath(raw);
+  if (!normalized) {
+    throw new HttpsError('invalid-argument', `Invalid repo path: ${raw}`);
+  }
+  return normalized;
+}
+
+function trimRepoExecutionContent(
+  value: string,
+  maxChars: number,
+) {
+  if (value.length <= maxChars) {
+    return value;
+  }
+  const head = Math.max(2000, Math.floor(maxChars * 0.7));
+  const tail = Math.max(1000, maxChars - head);
+  return `${value.slice(0, head)}\n/* ... trimmed for context ... */\n${value.slice(value.length - tail)}`;
+}
+
+async function persistRepoIndexEntries(
+  repoId: string,
+  entries: RepoIndexEntry[],
+) {
+  const collection = db
+    .collection('repositories')
+    .doc(repoId)
+    .collection('indexEntries');
+  const batch = db.batch();
+  for (const entry of entries.slice(0, 250)) {
+    batch.set(
+      collection.doc(safeDocId(entry.path)),
+      {
+        ...buildIndexEntryStoragePayload(entry),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+  }
+  await batch.commit();
+}
+
+function executionSummaryForPath(path: string, action: RepoExecutionAction) {
+  return action === 'create'
+    ? `Create ${path}`
+    : action === 'delete'
+      ? `Delete ${path}`
+      : `Update ${path}`;
+}
+
+async function hydrateRepoExecutionContext(params: {
+  ownerId: string;
+  repoId: string;
+  repo: {
+    ownerId?: string;
+    provider?: 'github' | 'github';
+    owner?: string;
+    name?: string;
+    defaultBranch?: string;
+    fullName?: string;
+    remoteId?: string | number | null;
+    apiBaseUrl?: string | null;
+  };
+  prompt: string;
+  currentFilePath?: string | null;
+  deepMode: boolean;
+}) {
+  const snapshot = await db
+    .collection('repositories')
+    .doc(params.repoId)
+    .collection('files')
+    .get();
+  const files = snapshot.docs
+    .map<RepoIndexFileInput | null>(document => {
+      const data = document.data() as {
+        path?: string;
+        type?: string;
+        language?: string;
+        content?: string;
+        contentPreview?: string;
+        sha?: string;
+        isDeleted?: boolean;
+      };
+      if (data.isDeleted === true) {
+        return null;
+      }
+      return {
+        path: typeof data.path === 'string' && data.path.trim().length > 0 ? data.path : document.id,
+        type: data.type ?? 'blob',
+        language: data.language ?? guessLanguageFromPath(typeof data.path === 'string' ? data.path : document.id),
+        content: data.content ?? '',
+        contentPreview: data.contentPreview ?? data.content ?? '',
+        sha: data.sha ?? null,
+      };
+    })
+    .filter((file): file is RepoIndexFileInput => file != null);
+
+  const fileMap = new Map<string, RepoIndexFileInput>(
+    files.map(file => [file.path, { ...file }]),
+  );
+  const limit = params.deepMode ? 12 : 5;
+  const preloadLimit = params.deepMode ? 16 : 8;
+
+  let entries = buildRepoIndexEntries([...fileMap.values()]);
+  let ranked = rankRepoIndexEntries({
+    prompt: params.prompt,
+    currentFilePath: params.currentFilePath,
+    entries,
+    deepMode: params.deepMode,
+  });
+
+  const preloadPaths = new Set<string>();
+  if (params.currentFilePath) {
+    preloadPaths.add(normalizeRepoExecutionPath(params.currentFilePath));
+  }
+  for (const entry of ranked.slice(0, preloadLimit)) {
+    preloadPaths.add(entry.path);
+  }
+
+  for (const path of preloadPaths) {
+    const existing = fileMap.get(path);
+    if (existing?.content && existing.content.length > 0) {
+      continue;
+    }
+    try {
+      const loaded = await loadRepositoryFileContent(
+        params.ownerId,
+        params.repoId,
+        path,
+        {
+          apiBaseUrl: params.repo.apiBaseUrl ?? undefined,
+        },
+      );
+      fileMap.set(path, {
+        path,
+        type: 'blob',
+        language: loaded.language,
+        content: loaded.content,
+        contentPreview: truncate(loaded.content, 1600),
+        sha: null,
+      });
+    } catch (error) {
+      functions.logger.warn('repo_execution.load_candidate_failed', {
+        repoId: params.repoId,
+        path,
+        errorMessage: normalizeError(error).message,
+      });
+    }
+  }
+
+  entries = buildRepoIndexEntries([...fileMap.values()]);
+  ranked = rankRepoIndexEntries({
+    prompt: params.prompt,
+    currentFilePath: params.currentFilePath,
+    entries,
+    deepMode: params.deepMode,
+  });
+  await persistRepoIndexEntries(params.repoId, entries);
+
+  const selectedEntries = ranked.slice(0, limit);
+  const dependencyPaths = pickDependencyCandidates(
+    entries,
+    selectedEntries.map(entry => entry.path),
+    params.deepMode ? 6 : 3,
+  );
+  const dependencyEntries = dependencyPaths
+    .map(path => entries.find(entry => entry.path === path))
+    .filter((entry): entry is RepoIndexEntry => Boolean(entry));
+
+  return {
+    fileMap,
+    entries,
+    ranked,
+    selectedEntries,
+    dependencyEntries,
+    repoStructure: buildRepoStructure(entries.map(entry => entry.path)),
+  };
+}
+
+async function callRepoExecutionModel(params: {
+  provider: AiProviderName;
+  mode: RepoExecutionMode;
+  contextPrompt: string;
+  repairPrompt?: string;
+}) {
+  const tokenInfo = lookupProviderToken(params.provider);
+  if (!tokenInfo) {
+    throw new HttpsError('failed-precondition', `No ${providerLabel(params.provider)} token configured.`);
+  }
+  const model = defaultModelFor(params.provider);
+  if (!model) {
+    throw new HttpsError('failed-precondition', `No model configured for ${params.provider}.`);
+  }
+  const messages = [
+    { role: 'system', content: buildRepoExecutionSystemPrompt() },
+    {
+      role: 'user',
+      content: params.repairPrompt ?? params.contextPrompt,
+    },
+  ];
+  const response = await fetchJson<{ choices?: Array<{ message?: { content?: string | null } }> }>(
+    `${providerBaseUrl(params.provider)}/chat/completions`,
+    {
+      method: 'POST',
+      headers: buildOpenAiHeaders(tokenInfo.token),
+      body: JSON.stringify(
+        buildOpenAiChatCompletionJsonBody({
+          model,
+          messages,
+          temperature: 0.1,
+          maxOutput: params.mode === 'deep' ? 24_000 : 12_000,
+        }),
+      ),
+    },
+  );
+  return response.choices?.[0]?.message?.content?.trim() ?? '';
+}
+
+function validateRepoExecutionEdits(
+  edits: ReturnType<typeof parseRepoExecutionResponse>,
+  knownFiles: Map<string, RepoIndexFileInput>,
+  allowedPaths: Set<string>,
+  maxFiles: number,
+) {
+  if (edits.length === 0 || edits.length > maxFiles) {
+    return false;
+  }
+  const seen = new Set<string>();
+  for (const edit of edits) {
+    const path = normalizePromptRepoPath(edit.path);
+    if (!path) {
+      return false;
+    }
+    if (!allowedPaths.has(path)) {
+      return false;
+    }
+    if (seen.has(path)) {
+      return false;
+    }
+    seen.add(path);
+    const beforeContent = knownFiles.get(path)?.content ?? '';
+    const fileExists = knownFiles.has(path);
+    if (fileExists && edit.beforeContent !== beforeContent) {
+      return false;
+    }
+    if (!fileExists && edit.beforeContent.trim().length > 0) {
+      return false;
+    }
+    if (edit.beforeContent === edit.afterContent) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function generateRepoExecutionSession(params: {
+  ownerId: string;
+  repoId: string;
+  prompt: string;
+  currentFilePath?: string | null;
+  deepMode: boolean;
+}) {
+  const repo = await ensureRepositoryAccess(params.repoId, params.ownerId);
+  const mode: RepoExecutionMode = params.deepMode ? 'deep' : 'normal';
+  const preparedContext = await hydrateRepoExecutionContext({
+    ownerId: params.ownerId,
+    repoId: params.repoId,
+    repo,
+    prompt: params.prompt,
+    currentFilePath: params.currentFilePath,
+    deepMode: params.deepMode,
+  });
+
+  const maxCharsPerFile = params.deepMode ? 28_000 : 16_000;
+  const contextPayload = {
+    repoStructure: preparedContext.repoStructure,
+    currentFilePath: params.currentFilePath ?? null,
+    deepMode: params.deepMode,
+    userPrompt: params.prompt,
+    relevantFiles: preparedContext.selectedEntries.map(entry => ({
+      path: entry.path,
+      summary: entry.summary,
+      reasons: entry.reasons,
+      content:
+          preparedContext.fileMap.get(entry.path)?.content ??
+          preparedContext.fileMap.get(entry.path)?.contentPreview ??
+          '',
+    })),
+    dependencyFiles: preparedContext.dependencyEntries.map(entry => ({
+      path: entry.path,
+      summary: entry.summary,
+      reasons: ['dependency_context'],
+      content: trimRepoExecutionContent(
+        preparedContext.fileMap.get(entry.path)?.content ??
+            preparedContext.fileMap.get(entry.path)?.contentPreview ??
+            '',
+        Math.floor(maxCharsPerFile * 0.6),
+      ),
+    })),
+  };
+
+  let rawOutput = await callRepoExecutionModel({
+    provider: 'openai',
+    mode,
+    contextPrompt: buildRepoExecutionUserPrompt(contextPayload),
+  });
+  let parsedEdits = parseRepoExecutionResponse(rawOutput);
+  const maxFiles = params.deepMode ? 14 : 6;
+  const allowedPaths = new Set(
+    preparedContext.selectedEntries.map(entry => entry.path),
+  );
+
+  if (!validateRepoExecutionEdits(parsedEdits, preparedContext.fileMap, allowedPaths, maxFiles)) {
+    rawOutput = await callRepoExecutionModel({
+      provider: 'openai',
+      mode,
+      contextPrompt: buildRepoExecutionUserPrompt(contextPayload),
+      repairPrompt: buildRepoExecutionRepairPrompt(contextPayload, rawOutput),
+    });
+    parsedEdits = parseRepoExecutionResponse(rawOutput);
+  }
+
+  if (!validateRepoExecutionEdits(parsedEdits, preparedContext.fileMap, allowedPaths, maxFiles)) {
+    throw new HttpsError(
+      'internal',
+      'The AI returned an invalid repo execution payload twice. Please retry with a narrower request.',
+    );
+  }
+
+  const edits: RepoExecutionPreparedEdit[] = parsedEdits.map(edit => {
+    const normalizedPath = normalizeRepoExecutionPath(edit.path);
+    const beforeContent = preparedContext.fileMap.get(normalizedPath)?.content ?? '';
+    const fileExists = preparedContext.fileMap.has(normalizedPath);
+    const action: RepoExecutionAction =
+      edit.afterContent.trim().length == 0
+        ? 'delete'
+        : fileExists
+          ? 'modify'
+          : 'create';
+    return {
+      path: normalizedPath,
+      action,
+      beforeContent,
+      afterContent: edit.afterContent,
+      summary: executionSummaryForPath(normalizedPath, action),
+      diffPreview: buildUnifiedDiff(normalizedPath, beforeContent, edit.afterContent),
+      diffLines: buildDiffLines(beforeContent, edit.afterContent),
+    };
+  });
+
+  const sessionRef = db
+    .collection('repositories')
+    .doc(params.repoId)
+    .collection('executionSessions')
+    .doc();
+  const steps = [
+    'Indexed repository files',
+    `Selected ${preparedContext.selectedEntries.length} relevant files`,
+    `Loaded ${edits.length} executable diff block${edits.length == 1 ? '' : 's'}`,
+    'Validated structured output',
+  ];
+  await sessionRef.set({
+    repoId: params.repoId,
+    ownerId: params.ownerId,
+    prompt: params.prompt,
+    mode,
+    summary: summarizeRepoExecution(parsedEdits),
+    selectedFiles: preparedContext.selectedEntries.map(entry => entry.path),
+    dependencyFiles: preparedContext.dependencyEntries.map(entry => entry.path),
+    inspectedFiles: preparedContext.ranked.slice(0, params.deepMode ? 16 : 8).map(entry => entry.path),
+    steps,
+    status: 'draft',
+    edits,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  return {
+    sessionId: sessionRef.id,
+    mode,
+    summary: summarizeRepoExecution(parsedEdits),
+    selectedFiles: preparedContext.selectedEntries.map(entry => entry.path),
+    dependencyFiles: preparedContext.dependencyEntries.map(entry => entry.path),
+    steps,
+    edits,
+  };
+}
+
+async function applyRepoExecutionSession(
+  ownerId: string,
+  repoId: string,
+  sessionId: string,
+) {
+  await ensureRepositoryAccess(repoId, ownerId);
+  const sessionRef = db
+    .collection('repositories')
+    .doc(repoId)
+    .collection('executionSessions')
+    .doc(sessionId);
+  const sessionSnap = await sessionRef.get();
+  if (!sessionSnap.exists) {
+    throw new HttpsError('not-found', 'Repo execution session not found.');
+  }
+  const session = sessionSnap.data() as {
+    status?: string;
+    edits?: Array<{
+      path?: string;
+      action?: RepoExecutionAction;
+      beforeContent?: string;
+      afterContent?: string;
+    }>;
+  };
+  const edits = Array.isArray(session.edits) ? session.edits : [];
+  if (edits.length === 0) {
+    throw new HttpsError('failed-precondition', 'Repo execution session has no edits to apply.');
+  }
+
+  const batch = db.batch();
+  const fileCollection = db.collection('repositories').doc(repoId).collection('files');
+  const appliedPaths: string[] = [];
+  for (const edit of edits) {
+    const path = normalizeRepoExecutionPath(asString(edit.path, 'executionSession.edits.path'));
+    const action = (typeof edit.action === 'string' ? edit.action : 'modify') as RepoExecutionAction;
+    const beforeContent = typeof edit.beforeContent === 'string' ? edit.beforeContent : '';
+    const afterContent = typeof edit.afterContent === 'string' ? edit.afterContent : '';
+    const fileRef = fileCollection.doc(safeDocId(path));
+    appliedPaths.push(path);
+    if (action === 'delete') {
+      batch.set(
+        fileRef,
+        {
+          path,
+          content: '',
+          baseContent: beforeContent,
+          isDeleted: true,
+          updatedAt: FieldValue.serverTimestamp(),
+          source: 'repo_execution',
+        },
+        { merge: true },
+      );
+      continue;
+    }
+    batch.set(
+      fileRef,
+      {
+        path,
+        language: guessLanguageFromPath(path),
+        content: afterContent,
+        contentPreview: truncate(afterContent, 1200),
+        baseContent: beforeContent,
+        isDeleted: false,
+        updatedAt: FieldValue.serverTimestamp(),
+        source: 'repo_execution',
+      },
+      { merge: true },
+    );
+  }
+  batch.set(
+    sessionRef,
+    {
+      status: 'applied',
+      appliedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+  await batch.commit();
+  await writeActivityEntry(
+    ownerId,
+    'ai',
+    sessionId,
+    `Applied ${appliedPaths.length} repo execution change${appliedPaths.length === 1 ? '' : 's'} to the working copy.`,
+    {
+      repoId,
+      appliedPaths,
+    },
+  );
+  return appliedPaths;
+}
+
+async function buildDraftFileChangesFromWorkingCopy(repoId: string) {
+  const snapshot = await db
+    .collection('repositories')
+    .doc(repoId)
+    .collection('files')
+    .get();
+  const changes: GitFileChange[] = [];
+  for (const document of snapshot.docs) {
+    const data = document.data() as {
+      path?: string;
+      content?: string;
+      baseContent?: string;
+      sha?: string;
+      isDeleted?: boolean;
+    };
+    const path = typeof data.path === 'string' ? data.path.trim() : '';
+    if (!path) {
+      continue;
+    }
+    const content = typeof data.content === 'string' ? data.content : '';
+    const baseContent = typeof data.baseContent === 'string' ? data.baseContent : '';
+    const sha = typeof data.sha === 'string' && data.sha.trim().length > 0 ? data.sha.trim() : undefined;
+    const isDeleted = data.isDeleted === true;
+    if (isDeleted) {
+      if (sha || baseContent.length > 0) {
+        changes.push({
+          path,
+          content: '',
+          sha,
+          mode: 'delete',
+        });
+      }
+      continue;
+    }
+    if (content === baseContent) {
+      continue;
+    }
+    changes.push({
+      path,
+      content,
+      sha,
+      mode: sha ? 'update' : 'create',
+    });
+  }
+  return changes;
 }
 
 function toAiSuggestionDraft(
@@ -4671,6 +5252,156 @@ Be concise, actionable, and sound like a person.`;
   };
 });
 
+export const executeRepoTask = onCall(GIT_AND_AI_CALLABLE_OPTIONS, async request => {
+  const startedAt = Date.now();
+  const ownerId = requireAuth(request);
+  const data = (request.data ?? {}) as Partial<RepoExecutionData>;
+  const repoId = asString(data.repoId, 'repoId');
+  const prompt = asString(data.prompt, 'prompt');
+  const deepMode = data.deepMode === true;
+  const currentFilePath = asOptionalString(data.currentFilePath);
+  const provider: AiProviderName = 'openai';
+  const actionType: BillableActionType = deepMode ? 'deep_repo_analysis' : 'refactor_code';
+  const estimatedTokens = buildActionCost(
+    actionType,
+    Math.max(
+      deepMode ? 360 : 220,
+      Math.ceil((prompt.length + (currentFilePath?.length ?? 0) + (deepMode ? 2200 : 900)) / 4),
+    ),
+  );
+  const costSnapshot = buildCostSnapshot({
+    actionType,
+    provider,
+    estimatedTokens,
+  });
+
+  await reserveWalletTokens(
+    ownerId,
+    repoId,
+    estimatedTokens,
+    provider,
+    estimatedTokens,
+    actionType,
+    'Reserved tokens for repo execution.',
+  );
+
+  try {
+    const result = await generateRepoExecutionSession({
+      ownerId,
+      repoId,
+      prompt,
+      currentFilePath,
+      deepMode,
+    });
+    await captureWalletTokens(
+      ownerId,
+      repoId,
+      estimatedTokens,
+      provider,
+      estimatedTokens,
+      actionType,
+      'Repo execution session generated.',
+      {
+        actualProviderCostUsd: costSnapshot.estimatedProviderCostUsd,
+        latencyMs: Date.now() - startedAt,
+        model: costSnapshot.assumedModel,
+      },
+    );
+    await writeOperationalMetric({
+      operation: 'execute_repo_task',
+      status: 'success',
+      ownerId,
+      repoId,
+      provider,
+      actionType,
+      model: costSnapshot.assumedModel,
+      durationMs: Date.now() - startedAt,
+      estimatedTokens,
+      chargedTokens: estimatedTokens,
+      estimatedProviderCostUsd: costSnapshot.estimatedProviderCostUsd,
+      actualProviderCostUsd: costSnapshot.estimatedProviderCostUsd,
+      estimatedMarginUsd: costSnapshot.estimatedMarginUsd,
+      refundPolicy: costSnapshot.refundPolicy,
+      dailyCap: costSnapshot.dailyCap,
+      pricingVersion: costSnapshot.pricingVersion,
+      remoteStatus: 'completed',
+      metadata: {
+        mode: result.mode,
+        selectedFiles: result.selectedFiles,
+        dependencyFiles: result.dependencyFiles,
+        editCount: result.edits.length,
+      },
+    });
+    return {
+      ...result,
+      actionType,
+    };
+  } catch (error) {
+    const normalizedError = normalizeError(error);
+    await releaseWalletTokens(
+      ownerId,
+      repoId,
+      estimatedTokens,
+      provider,
+      estimatedTokens,
+      actionType,
+      'Released repo execution reservation after failure.',
+      {
+        latencyMs: Date.now() - startedAt,
+        model: costSnapshot.assumedModel,
+      },
+    );
+    await writeOperationalMetric({
+      operation: 'execute_repo_task',
+      status: 'failure',
+      ownerId,
+      repoId,
+      provider,
+      actionType,
+      model: costSnapshot.assumedModel,
+      durationMs: Date.now() - startedAt,
+      estimatedTokens,
+      chargedTokens: 0,
+      estimatedProviderCostUsd: costSnapshot.estimatedProviderCostUsd,
+      actualProviderCostUsd: null,
+      estimatedMarginUsd: costSnapshot.estimatedMarginUsd,
+      refundPolicy: costSnapshot.refundPolicy,
+      dailyCap: costSnapshot.dailyCap,
+      pricingVersion: costSnapshot.pricingVersion,
+      errorCode: normalizedError.code,
+      errorMessage: normalizedError.message,
+      remoteStatus: 'failed',
+    });
+    throw error;
+  }
+});
+
+export const applyRepoExecution = onCall(GIT_CALLABLE_OPTIONS, async request => {
+  const startedAt = Date.now();
+  const ownerId = requireAuth(request);
+  const data = (request.data ?? {}) as Partial<ApplyRepoExecutionData>;
+  const repoId = asString(data.repoId, 'repoId');
+  const sessionId = asString(data.sessionId, 'sessionId');
+  const appliedPaths = await applyRepoExecutionSession(ownerId, repoId, sessionId);
+  await writeOperationalMetric({
+    operation: 'apply_repo_execution',
+    status: 'success',
+    ownerId,
+    repoId,
+    durationMs: Date.now() - startedAt,
+    remoteStatus: 'working_copy_updated',
+    metadata: {
+      sessionId,
+      appliedPaths,
+    },
+  });
+  return {
+    sessionId,
+    status: 'applied',
+    appliedPaths,
+  };
+});
+
 export const loadRepositoryFile = onCall(GIT_CALLABLE_OPTIONS, async request => {
   const startedAt = Date.now();
   const ownerId = requireAuth(request);
@@ -4927,7 +5658,7 @@ export const submitGitAction = onCall(GIT_CALLABLE_OPTIONS, async request => {
   const prDescription = asOptionalString(data.prDescription);
   const confirmed = data.confirmed === true;
   const mergeMethod = data.mergeMethod;
-  const fileChanges = Array.isArray(data.fileChanges)
+  let fileChanges = Array.isArray(data.fileChanges)
     ? data.fileChanges
         .filter(change => isObject(change))
         .map(change => {
@@ -4946,6 +5677,9 @@ export const submitGitAction = onCall(GIT_CALLABLE_OPTIONS, async request => {
           return parsedChange;
         })
     : [];
+  if (actionType === 'commit' && fileChanges.length === 0) {
+    fileChanges = await buildDraftFileChangesFromWorkingCopy(repoId);
+  }
 
   const estimatedTokens = buildActionCost(
     actionType,
