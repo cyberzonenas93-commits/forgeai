@@ -1,0 +1,105 @@
+{
+  "$schema": "Monetization and token economics for ForgeAI",
+  "version": "2026-03-1",
+  "tokenEconomics": {
+    "tokenValueUsd": 0.01,
+    "marginTargetMultiplier": 5,
+    "marginTargetMultiplierPreferred": 8,
+    "providerCostAssumptions": {
+      "blended": {
+        "inputPer1MUsd": 1,
+        "outputPer1MUsd": 4
+      },
+      "typicalRequest": {
+        "inputTokens": 2000,
+        "outputTokens": 1000,
+        "estimatedCostUsd": 0.006
+      }
+    },
+    "appleCut": {
+      "worstCasePercent": 30,
+      "smallBusinessPercent": 15,
+      "year2ImprovementNote": "Document 15% small-business / year-2 separately"
+    }
+  },
+  "actionPricing": {
+    "explain_code": { "tokens": 2, "tier": "simple", "dailyCap": 50, "refundOnFailure": true },
+    "fix_bug": { "tokens": 6, "tier": "medium", "dailyCap": 40, "refundOnFailure": true },
+    "generate_tests": { "tokens": 8, "tier": "medium", "dailyCap": 30, "refundOnFailure": true },
+    "refactor_code": { "tokens": 10, "tier": "heavy", "dailyCap": 25, "refundOnFailure": true },
+    "deep_repo_analysis": { "tokens": 25, "tier": "heavy", "dailyCap": 10, "refundOnFailure": true },
+    "ai_suggestion": { "tokens": 8, "tier": "medium", "dailyCap": 30, "refundOnFailure": true },
+    "create_branch": { "tokens": 12, "tier": "simple", "dailyCap": 80, "refundOnFailure": true },
+    "commit": { "tokens": 24, "tier": "simple", "dailyCap": 80, "refundOnFailure": true },
+    "open_pr": { "tokens": 16, "tier": "simple", "dailyCap": 80, "refundOnFailure": true },
+    "merge_pr": { "tokens": 18, "tier": "simple", "dailyCap": 60, "refundOnFailure": true },
+    "run_tests": { "tokens": 30, "tier": "medium", "dailyCap": 40, "refundOnFailure": true },
+    "run_lint": { "tokens": 10, "tier": "simple", "dailyCap": 80, "refundOnFailure": true },
+    "build_project": { "tokens": 40, "tier": "medium", "dailyCap": 30, "refundOnFailure": true }
+  },
+  "modelRouting": {
+    "simple": ["explain_code"],
+    "medium": ["fix_bug", "generate_tests", "run_tests", "run_lint", "build_project", "ai_suggestion"],
+    "heavy": ["refactor_code", "deep_repo_analysis"]
+  },
+  "plans": {
+    "free": {
+      "id": "free",
+      "productId": null,
+      "displayName": "Free",
+      "priceUsd": 0,
+      "appleNetUsdAt30": 0,
+      "monthlyIncludedTokens": 20,
+      "dailyActionCap": 10,
+      "allowedModelTier": "basic"
+    },
+    "pro": {
+      "id": "pro",
+      "productId": "com.forgeai.app.subscription.pro",
+      "displayName": "Pro",
+      "priceUsd": 14.99,
+      "appleNetUsdAt30": 10.49,
+      "monthlyIncludedTokens": 300,
+      "dailyActionCap": 50,
+      "allowedModelTier": "standard"
+    },
+    "power": {
+      "id": "power",
+      "productId": "com.forgeai.app.subscription.power",
+      "displayName": "Power",
+      "priceUsd": 29.99,
+      "appleNetUsdAt30": 20.99,
+      "monthlyIncludedTokens": 800,
+      "dailyActionCap": 150,
+      "allowedModelTier": "priority"
+    }
+  },
+  "topUpPacks": {
+    "pack_small": {
+      "id": "pack_small",
+      "productId": "com.forgeai.app.tokens.small",
+      "tokens": 100,
+      "priceUsd": 5,
+      "appleNetUsdAt30": 3.50
+    },
+    "pack_medium": {
+      "id": "pack_medium",
+      "productId": "com.forgeai.app.tokens.medium",
+      "tokens": 300,
+      "priceUsd": 12,
+      "appleNetUsdAt30": 8.40
+    },
+    "pack_large": {
+      "id": "pack_large",
+      "productId": "com.forgeai.app.tokens.large",
+      "tokens": 1000,
+      "priceUsd": 30,
+      "appleNetUsdAt30": 21.00
+    }
+  },
+  "modelTiers": {
+    "basic": { "openai": "gpt-4.1-mini", "anthropic": "claude-3-5-haiku", "gemini": "gemini-2.0-flash" },
+    "standard": { "openai": "gpt-4.1-nano", "anthropic": "claude-3-5-sonnet-latest", "gemini": "gemini-2.0-flash" },
+    "priority": { "openai": "gpt-4.1", "anthropic": "claude-3-5-sonnet-latest", "gemini": "gemini-2.0-flash-thinking" }
+  }
+}

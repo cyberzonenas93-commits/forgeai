@@ -1,0 +1,129 @@
+{
+  "app": {
+    "name": "ForgeAI",
+    "firebaseProjectId": "forgeai-555ee",
+    "bundleId": "com.forgeai.app",
+    "androidApplicationId": "com.forgeai.app",
+    "firebaseAuthHandlerUrl": "https://forgeai-555ee.firebaseapp.com/__/auth/handler",
+    "iosGoogleReversedClientId": "com.googleusercontent.apps.560540704761-2l7cj1v94jud4u7kelp9k1qkvgbt0t8v",
+    "iosFirebaseEncodedAppIdScheme": "app-1-560540704761-ios-b731e8b285335363a0e728"
+  },
+  "providers": {
+    "github": {
+      "label": "GitHub",
+      "baseUrl": "https://api.github.com",
+      "secretNames": ["GITHUB_TOKEN", "GITHUB_APP_TOKEN"],
+      "capabilities": ["repository-sync", "branch-management", "pull-requests", "workflow-dispatch"],
+      "authMode": "firebase-oauth",
+      "connectionMode": "personal-access-token-beta"
+    },
+    "gitlab": {
+      "label": "GitLab",
+      "baseUrl": "https://gitlab.com/api/v4",
+      "secretNames": ["GITLAB_TOKEN"],
+      "capabilities": ["repository-sync", "branch-management", "merge-requests", "pipeline-trigger"],
+      "authMode": "connection-token-only",
+      "connectionMode": "personal-access-token-beta"
+    },
+    "openai": {
+      "label": "OpenAI",
+      "baseUrl": "https://api.openai.com/v1",
+      "secretNames": ["OPENAI_API_KEY"],
+      "capabilities": ["ai-suggestions", "diff-generation", "token-estimation"],
+      "defaultModel": "gpt-4.1-mini"
+    },
+    "anthropic": {
+      "label": "Anthropic",
+      "baseUrl": "https://api.anthropic.com/v1",
+      "secretNames": ["ANTHROPIC_API_KEY"],
+      "capabilities": ["ai-suggestions", "diff-generation", "token-estimation"],
+      "defaultModel": "claude-3-5-sonnet-latest"
+    },
+    "gemini": {
+      "label": "Gemini",
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "secretNames": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+      "capabilities": ["ai-suggestions", "diff-generation", "token-estimation"],
+      "defaultModel": "gemini-2.0-flash"
+    }
+  },
+  "requiredProvidersByEnvironment": {
+    "local": [],
+    "development": ["openai"],
+    "beta": ["github", "gitlab", "openai"],
+    "production": ["github", "gitlab", "openai", "anthropic", "gemini"]
+  },
+  "tokenEconomics": {
+    "tokenValueUsd": 0.01,
+    "actionTokenFloors": {
+      "explain_code": 2,
+      "fix_bug": 6,
+      "generate_tests": 8,
+      "refactor_code": 10,
+      "deep_repo_analysis": 25,
+      "ai_suggestion": 8,
+      "create_branch": 12,
+      "commit": 24,
+      "open_pr": 16,
+      "merge_pr": 18,
+      "run_tests": 30,
+      "run_lint": 10,
+      "build_project": 40
+    },
+    "operationalCostUsd": {
+      "create_branch": 0.0005,
+      "commit": 0.002,
+      "open_pr": 0.0015,
+      "merge_pr": 0.0015,
+      "run_tests": 0.01,
+      "run_lint": 0.004,
+      "build_project": 0.012
+    },
+    "aiCostUsdPer1M": {
+      "openai": {
+        "input": 0.4,
+        "output": 1.6
+      },
+      "anthropic": {
+        "input": 3.0,
+        "output": 15.0
+      },
+      "gemini": {
+        "input": 0.15,
+        "output": 0.6
+      }
+    },
+    "dailyCaps": {
+      "guest": 200,
+      "signedIn": 2000,
+      "beta": 5000
+    },
+    "refundPolicy": {
+      "ai_suggestion": "Release reservation on provider failure. Capture only after a reviewable draft is created.",
+      "git_actions": "Release reservation on remote execution failure or missing provider config.",
+      "checks": "Release reservation on dispatch failure or missing provider config."
+    },
+    "marginTargetPercent": 70
+  },
+  "smokeTests": {
+    "branchPrefix": "beta/smoke/",
+    "requiredEnv": [
+      "SMOKE_TEST_FIREBASE_USER_EMAIL",
+      "SMOKE_TEST_FIREBASE_USER_PASSWORD",
+      "SMOKE_TEST_GITHUB_REPO",
+      "SMOKE_TEST_GITLAB_REPO"
+    ]
+  },
+  "release": {
+    "screenshotScenes": [
+      "auth",
+      "dashboard",
+      "repo",
+      "editor",
+      "diff",
+      "checks",
+      "wallet",
+      "settings"
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "forgeai-launch",
+  "private": true,
+  "scripts": {
+    "build:functions": "npm --prefix functions run build",
+    "lint:functions": "npm --prefix functions run lint",
+    "validate:env": "node ./tool/validate_launch_env.mjs",
+    "validate:env:strict": "node ./tool/validate_launch_env.mjs --strict",
+    "smoke:backend": "node ./tool/smoke_runner.mjs --mode backend",
+    "smoke:plan": "node ./tool/smoke_runner.mjs --mode checklist",
+    "simulate:tokens": "node ./tool/token_economics_simulator.mjs",
+    "deploy:functions": "node ./tool/deploy_firebase.mjs functions",
+    "deploy:rules": "node ./tool/deploy_firebase.mjs rules",
+    "deploy:indexes": "node ./tool/deploy_firebase.mjs indexes",
+    "deploy:prod": "node ./tool/deploy_firebase.mjs prod",
+    "verify:launch": "node ./tool/validate_launch_env.mjs --strict && npm --prefix functions run build && flutter analyze && flutter test",
+    "build:android:debug": "node ./tool/flutter_with_launch_env.mjs build apk --debug",
+    "build:android:release": "node ./tool/flutter_with_launch_env.mjs build appbundle --release",
+    "build:ios:sim": "node ./tool/flutter_with_launch_env.mjs build ios --simulator",
+    "build:ios:release": "node ./tool/flutter_with_launch_env.mjs build ios --release --no-codesign",
+    "run:app": "node ./tool/flutter_with_launch_env.mjs run"
+  }
+}

@@ -1,0 +1,133 @@
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'core/firebase/firebase_providers.dart';
+import 'shared/forge_models.dart';
+import 'core/config/forge_release_config.dart';
+import 'core/notifications/forge_push_controller.dart';
+import 'core/notifications/forge_push_service.dart';
+import 'core/observability/forge_telemetry.dart';
+import 'core/theme/app_theme.dart';
+import 'features/auth/application/auth_controller.dart';
+import 'features/auth/presentation/auth_gate.dart';
+import 'features/screenshot/presentation/forge_screenshot_studio.dart';
+import 'features/splash/presentation/forge_splash_screen.dart';
+import 'features/workspace/application/forge_workspace_controller.dart';
+import 'features/workspace/data/forge_workspace_repository.dart';
+import 'shell/forge_home_shell.dart';
+
+final authControllerProvider = Provider<AuthController>((ref) {
+  final controller = AuthController(
+    telemetry: ref.watch(forgeTelemetryProvider),
+  );
+  ref.onDispose(controller.dispose);
+  return controller;
+});
+
+final forgeWorkspaceRepositoryProvider = Provider<ForgeWorkspaceRepository>((
+  ref,
+) {
+  return ForgeWorkspaceRepository(
+    firestore: ref.watch(firebaseFirestoreProvider),
+    functions: ref.watch(firebaseFunctionsProvider),
+  );
+});
+
+final workspaceControllerProvider = Provider<ForgeWorkspaceController>((ref) {
+  final authController = ref.watch(authControllerProvider);
+  final controller = Firebase.apps.isEmpty
+      ? ForgeWorkspaceController.preview(authController: authController)
+      : ForgeWorkspaceController(
+          repository: ref.watch(forgeWorkspaceRepositoryProvider),
+          authController: authController,
+          telemetry: ref.watch(forgeTelemetryProvider),
+        );
+  ref.onDispose(controller.dispose);
+  return controller;
+});
+
+final forgePushServiceProvider = Provider<ForgePushService>((ref) {
+  return ForgePushService();
+});
+
+final forgePushControllerProvider = Provider<ForgePushController>((ref) {
+  final workspaceController = ref.watch(workspaceControllerProvider);
+  final controller = ForgePushController(
+    service: ref.watch(forgePushServiceProvider),
+    authController: ref.watch(authControllerProvider),
+    registerToken: ({
+      required String token,
+      required String platform,
+      required ForgePushPermissionStatus permissionStatus,
+    }) {
+      return workspaceController.registerPushToken(
+        token: token,
+        platform: platform,
+        permissionStatus: permissionStatus,
+      );
+    },
+    unregisterToken: workspaceController.unregisterPushToken,
+    telemetry: ref.watch(forgeTelemetryProvider),
+  );
+  ref.onDispose(controller.dispose);
+  return controller;
+});
+
+class ForgeAiApp extends ConsumerWidget {
+  const ForgeAiApp({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final telemetry = ref.watch(forgeTelemetryProvider);
+    if (ForgeReleaseConfig.enableScreenshotStudio) {
+      return MaterialApp(
+        title: 'ForgeAI',
+        debugShowCheckedModeBanner: false,
+        theme: ForgeAiTheme.dark(),
+        navigatorObservers: telemetry.navigatorObservers,
+        home: ForgeScreenshotStudio(scene: ForgeReleaseConfig.screenshotScene),
+      );
+    }
+
+    final controller = ref.watch(authControllerProvider);
+    final workspaceController = ref.watch(workspaceControllerProvider);
+    final pushController = ref.watch(forgePushControllerProvider);
+
+    return MaterialApp(
+      title: 'ForgeAI',
+      debugShowCheckedModeBanner: false,
+      theme: ForgeAiTheme.dark(),
+      navigatorObservers: telemetry.navigatorObservers,
+      home: ForgeSplashScreen(
+        child: AuthGate(
+          controller: controller,
+          signedInBuilder: (context, account) => ForgeHomeShell(
+            controller: controller,
+            account: account,
+            workspaceController: workspaceController,
+            pushController: pushController,
+          ),
+          loadingBuilder: (context) => const _ForgeLoadingScreen(),
+        ),
+      ),
+    );
+  }
+}
+
+class _ForgeLoadingScreen extends StatelessWidget {
+  const _ForgeLoadingScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: ForgeAiTheme.backgroundGradient,
+      ),
+      child: const Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Center(child: CircularProgressIndicator()),
+      ),
+    );
+  }
+}

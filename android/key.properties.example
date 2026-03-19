@@ -1,0 +1,4 @@
+storeFile=../keystores/forgeai-release.jks
+storePassword=replace-with-keystore-password
+keyAlias=forgeai
+keyPassword=replace-with-key-password

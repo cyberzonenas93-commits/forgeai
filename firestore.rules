@@ -1,0 +1,92 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function ownsRepository(repoId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/repositories/$(repoId)).data.ownerId == request.auth.uid;
+    }
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    match /users/{userId}/connections/{connectionId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    match /users/{userId}/promptThreads/{threadId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    match /users/{userId}/devices/{deviceId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    match /users/{userId}/notificationPreferences/{prefId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    match /users/{userId}/providerTokens/{providerId} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId}/providerTokens/{providerId} {
+      allow read, write: if false;
+    }
+
+    match /wallets/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    match /wallets/{userId}/usage/{usageId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    match /repositories/{repoId} {
+      allow read: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+    }
+
+    match /repositories/{repoId}/files/{fileId} {
+      allow read, create, update, delete: if ownsRepository(repoId);
+    }
+
+    match /changeRequests/{changeRequestId} {
+      allow read: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+    }
+
+    match /gitActions/{actionId} {
+      allow read: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+    }
+
+    match /checksRuns/{runId} {
+      allow read: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+    }
+
+    match /activity/{activityId} {
+      allow read: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+    }
+
+    match /opsMetrics/{metricId} {
+      allow read, write: if false;
+    }
+  }
+}

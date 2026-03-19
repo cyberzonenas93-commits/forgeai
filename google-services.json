@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "560540704761",
+    "project_id": "forgeai-555ee",
+    "storage_bucket": "forgeai-555ee.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:560540704761:android:be77d6236e17a12aa0e728",
+        "android_client_info": {
+          "package_name": "com.forgeai.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCvC3uWo2Iu_RqI_d5t_2OgD7R747Hso_E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

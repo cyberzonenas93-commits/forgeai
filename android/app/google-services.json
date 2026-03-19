@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "560540704761",
+    "project_id": "forgeai-555ee",
+    "storage_bucket": "forgeai-555ee.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:560540704761:android:be77d6236e17a12aa0e728",
+        "android_client_info": {
+          "package_name": "com.forgeai.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "560540704761-he46h40ke60ho1a19pdoqmb7673c7rk7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.forgeai.app",
+            "certificate_hash": "377b7e8ba2413c9c8ad243872b73bc83eb7e6893"
+          }
+        },
+        {
+          "client_id": "560540704761-gop3l1aaivbo2spk92m9ocpoeemd0m16.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCvC3uWo2Iu_RqI_d5t_2OgD7R747Hso_E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "560540704761-gop3l1aaivbo2spk92m9ocpoeemd0m16.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "560540704761-2l7cj1v94jud4u7kelp9k1qkvgbt0t8v.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.forgeai.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

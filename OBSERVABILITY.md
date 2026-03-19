@@ -1,0 +1,53 @@
+# Observability
+
+## Implemented
+- Firebase Analytics in Flutter
+- Firebase Crashlytics in Flutter
+- Cloud Functions structured metrics written to `opsMetrics`
+- Wallet usage ledger written to `wallets/{uid}/usage`
+
+## Flutter Signals
+- `forge_app_boot`
+- `forge_auth_state_changed`
+- auth action success/failure events
+- repository sync/connect/open/save events
+- AI run events
+- Git action events
+- check action events
+
+## Backend Signals
+`functions/src/index.ts` writes `opsMetrics` for:
+- provider configuration failures
+- repository sync/load failures
+- AI generation success/failure
+- Git action success/failure
+- check dispatch success/failure
+
+## Token Observability
+Wallet usage rows now include:
+- `estimatedProviderCostUsd`
+- `actualProviderCostUsd`
+- `estimatedMarginUsd`
+- `refundPolicy`
+- `dailyCap`
+- `pricingVersion`
+- `model`
+- `latencyMs`
+
+## Recommended Dashboards
+- Crash-free sessions by app version
+- Auth success/failure by provider
+- Repository sync failures by provider
+- AI latency and failure rate by provider/model
+- Git action completion rate
+- CI dispatch completion rate
+- Token capture vs release counts
+- Margin trend by action type
+
+## Current Limitation
+- AI provider cost is still assumption-based from configured token pricing, not invoice-backed provider billing export
+
+## Launch Monitors
+- Watch `opsMetrics` for `awaiting_provider_configuration`
+- Watch `wallets/{uid}/usage` for unreleased reservations
+- Watch Crashlytics for auth callback and editor crashes

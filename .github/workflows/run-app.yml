@@ -1,0 +1,42 @@
+name: Run App + Capture Logs
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Target platform (android/ios/web)"
+        required: false
+        default: "android"
+
+jobs:
+  run-app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Replace this with your stack setup (Flutter, Node, etc.)
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; fi
+
+      # Replace this with your app run command.
+      # Example: npm run test:e2e or flutter test integration_test
+      - name: Run app / tests and capture logs
+        run: |
+          mkdir -p artifacts
+          echo "Running app workflow on platform=${{ github.event.inputs.platform }}" | tee artifacts/run.log
+          # Example command (replace): npm run test:e2e 2>&1 | tee -a artifacts/run.log
+          echo "TODO: replace with actual run command" | tee -a artifacts/run.log
+
+      # Save screenshots into artifacts/screenshots in your run command.
+      - name: Upload logs and screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-run-artifacts-${{ github.run_number }}
+          path: |
+            artifacts/**
