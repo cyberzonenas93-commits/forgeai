@@ -160,6 +160,144 @@ class _ForgePanelState extends State<ForgePanel> {
   }
 }
 
+class ForgeAnimatedSwap extends StatelessWidget {
+  const ForgeAnimatedSwap({
+    super.key,
+    required this.child,
+    this.duration = const Duration(milliseconds: 440),
+    this.reverseDuration,
+    this.layoutBuilder = AnimatedSwitcher.defaultLayoutBuilder,
+  });
+
+  final Widget child;
+  final Duration duration;
+  final Duration? reverseDuration;
+  final AnimatedSwitcherLayoutBuilder layoutBuilder;
+
+  static Widget defaultTransitionBuilder(
+    Widget child,
+    Animation<double> animation,
+  ) {
+    final curved = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+    return FadeTransition(
+      opacity: curved,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.045),
+          end: Offset.zero,
+        ).animate(curved),
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.985, end: 1).animate(curved),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: duration,
+      reverseDuration: reverseDuration ?? duration,
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      layoutBuilder: layoutBuilder,
+      transitionBuilder: defaultTransitionBuilder,
+      child: child,
+    );
+  }
+}
+
+class ForgeReveal extends StatefulWidget {
+  const ForgeReveal({
+    super.key,
+    required this.child,
+    this.delay = Duration.zero,
+    this.duration = const Duration(milliseconds: 520),
+    this.beginOffset = const Offset(0, 0.05),
+    this.beginScale = 0.985,
+  });
+
+  final Widget child;
+  final Duration delay;
+  final Duration duration;
+  final Offset beginOffset;
+  final double beginScale;
+
+  @override
+  State<ForgeReveal> createState() => _ForgeRevealState();
+}
+
+class _ForgeRevealState extends State<ForgeReveal>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: widget.duration,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleReveal();
+  }
+
+  @override
+  void didUpdateWidget(covariant ForgeReveal oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.duration != widget.duration) {
+      _controller.duration = widget.duration;
+    }
+  }
+
+  void _scheduleReveal() {
+    if (widget.delay == Duration.zero) {
+      _controller.forward();
+      return;
+    }
+    Future<void>.delayed(widget.delay, () {
+      if (!mounted || _controller.isAnimating || _controller.value > 0) {
+        return;
+      }
+      _controller.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final curved = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+    return FadeTransition(
+      opacity: curved,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: widget.beginOffset,
+          end: Offset.zero,
+        ).animate(curved),
+        child: ScaleTransition(
+          scale: Tween<double>(
+            begin: widget.beginScale,
+            end: 1,
+          ).animate(curved),
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
 class ForgePrimaryButton extends StatelessWidget {
   const ForgePrimaryButton({
     super.key,

@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../core/config/forge_economics_config.dart';
-import '../core/config/forge_release_config.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/forge_palette.dart';
 import '../core/notifications/forge_push_controller.dart';
@@ -57,7 +56,8 @@ class _ForgeHomeShellState extends State<ForgeHomeShell> {
   late ForgeBillingService _billingService;
   IAPForgeBillingService? _iapBillingService;
 
-  bool get _billingActionsEnabled => _billingService is IAPForgeBillingService;
+  bool get _billingActionsEnabled =>
+      _billingService is IAPForgeBillingService || !kReleaseMode;
 
   static const List<_ShellDestination> _destinations = [
     _ShellDestination(
@@ -102,9 +102,6 @@ class _ForgeHomeShellState extends State<ForgeHomeShell> {
 
   Future<void> _tryUseIAP() async {
     if (defaultTargetPlatform != TargetPlatform.iOS) {
-      return;
-    }
-    if (!kReleaseMode && !ForgeReleaseConfig.enableIapInDebug) {
       return;
     }
     final functions = widget.firebaseFunctions;

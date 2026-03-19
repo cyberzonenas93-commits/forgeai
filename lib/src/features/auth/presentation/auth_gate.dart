@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/widgets/forge_ui.dart';
 import '../application/auth_controller.dart';
 import '../domain/auth_account.dart';
 import '../domain/auth_state.dart';
@@ -23,14 +24,29 @@ class AuthGate extends StatelessWidget {
     return ValueListenableBuilder<AuthState>(
       valueListenable: controller,
       builder: (context, state, _) {
+        final Widget child;
         if (state.operation == AuthOperation.bootstrapping) {
-          return loadingBuilder?.call(context) ??
-              const Scaffold(body: Center(child: CircularProgressIndicator()));
+          child = KeyedSubtree(
+            key: const ValueKey('auth-loading'),
+            child:
+                loadingBuilder?.call(context) ??
+                const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                ),
+          );
+        } else if (state.account != null) {
+          child = KeyedSubtree(
+            key: ValueKey('auth-signed-in-${state.account!.id}'),
+            child: signedInBuilder(context, state.account!),
+          );
+        } else {
+          child = KeyedSubtree(
+            key: const ValueKey('auth-signed-out'),
+            child: AuthEntryScreen(controller: controller),
+          );
         }
-        if (state.account != null) {
-          return signedInBuilder(context, state.account!);
-        }
-        return AuthEntryScreen(controller: controller);
+
+        return ForgeAnimatedSwap(child: child);
       },
     );
   }

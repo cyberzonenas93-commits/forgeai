@@ -353,6 +353,18 @@ class _RepositoriesScreenState extends State<RepositoriesScreen> {
                               spacing: 10,
                               runSpacing: 10,
                               children: [
+                                ForgePrimaryButton(
+                                  label: state.isRunningCheck
+                                      ? 'Running app…'
+                                      : 'Run app',
+                                  icon: Icons.rocket_launch_rounded,
+                                  onPressed: state.isRunningCheck
+                                      ? null
+                                      : () => _runAppFromRepository(
+                                          context,
+                                          selectedRepository,
+                                        ),
+                                ),
                                 ForgeSecondaryButton(
                                   label: state.isSyncing ? 'Syncing…' : 'Sync',
                                   icon: Icons.sync_rounded,
@@ -488,6 +500,70 @@ class _RepositoriesScreenState extends State<RepositoriesScreen> {
       return '${repo.repoLabel}\n${repo.shareUrl}';
     }
     return '${repo.repoLabel}\n$description\n${repo.shareUrl}';
+  }
+
+  Future<void> _runAppFromRepository(
+    BuildContext context,
+    ForgeRepository repo,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final logsUrl = await widget.controller.runAppWorkflow();
+      if (!context.mounted) return;
+      final suffix = (logsUrl ?? '').trim().isEmpty
+          ? 'Open GitHub Actions in this repo to view logs and artifacts.'
+          : 'Logs: $logsUrl';
+      messenger.showSnackBar(
+        SnackBar(content: Text('Run started for ${repo.repoLabel}. $suffix')),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      final message = error.toString();
+      final missingWorkflow = message.contains('404') ||
+          message.toLowerCase().contains('not found') ||
+          message.toLowerCase().contains('workflow');
+      if (!missingWorkflow) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('Could not run app: $error')),
+        );
+        return;
+      }
+
+      final shouldInstall = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Set up run app workflow'),
+          content: Text(
+            'This repo is missing `.github/workflows/run-app.yml`.\n\n'
+            'Install it now on branch `${repo.defaultBranch}` so you can run the app from here?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Not now'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Install'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldInstall != true) return;
+
+      await widget.controller.installRunAppWorkflowViaGit(
+        branchName: repo.defaultBranch,
+      );
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Installed run-app workflow on ${repo.defaultBranch}. Tap Run app again.',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _showNewBranchDialog(

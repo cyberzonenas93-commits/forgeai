@@ -1,0 +1,11 @@
+---
+description: Agent may create and modify project files without asking for file-level permission each time
+alwaysApply: true
+---
+
+# File and workspace access
+
+You have explicit permission to **create, edit, move, and delete files** anywhere under this repository when it serves the user’s task. Do not defer implementation because of uncertainty about whether you are “allowed” to touch a file—use normal judgment (stay within the repo, respect secrets and `.gitignore`, follow AGENTS.md ownership when it avoids churn).
+
+- Prefer **implementing changes directly** over leaving “run this yourself” steps when the environment supports it.
+- If a path is blocked by **Cursor sandbox** or **network** settings, say so briefly and suggest the user adjust **Cursor Settings → Features → Chat / Agent** (or equivalent) for full tool access—not a moral limitation on editing the codebase.

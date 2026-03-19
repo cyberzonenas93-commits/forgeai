@@ -4247,86 +4247,113 @@ export const askRepo = onCall(GIT_AND_AI_CALLABLE_OPTIONS, async request => {
     })
     .filter((item): item is { role: 'user' | 'assistant'; text: string } => Boolean(item));
 
-  let repoContext = 'The user is not currently in a specific repository.';
+  let repoContext = 'The user has no connected repositories yet.';
   const searchTerms = buildRepoSearchTerms(prompt, history);
   let inspectedFilesForTrace: string[] = [];
-  if (data.repoId) {
-    const repo = await ensureRepositoryAccess(data.repoId, ownerId);
-    const fullName = repo.fullName ?? `${repo.owner}/${repo.name}`;
-    const filesSnapshot = await db
-      .collection('repositories')
-      .doc(data.repoId)
-      .collection('files')
-      .limit(220)
-      .get();
-    const fileRows = filesSnapshot.docs.map(d => {
-      const raw = d.data() as { path?: string; content?: string };
-      return {
-        path: typeof raw.path === 'string' ? raw.path : d.id,
-        content: typeof raw.content === 'string' ? raw.content : '',
-      };
-    });
-    const paths = fileRows.map(r => r.path).filter(Boolean).slice(0, 140);
-    const ranked = fileRows
-      .map(file => ({
-        ...file,
-        score: scoreRepoFileForPrompt(file.path, file.content, searchTerms),
-      }))
-      .filter(file => file.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 8);
-    inspectedFilesForTrace = ranked.map(file => file.path);
-    const relevantSnippets = ranked
-      .map(file => {
-        const normalized = normalizeText(file.content);
-        const shortBody = truncate(normalized, 900);
-        if (!shortBody) {
-          return `- ${file.path} (matched by path/metadata)`;
-        }
-        return `- ${file.path}: ${shortBody}`;
-      })
-      .join('\n');
-    repoContext = `The user is in repository: ${fullName}. Files in the repo (up to 140): ${paths.join(', ') || '(none synced yet)'}.
-
-Likely relevant files/snippets for this request:
-${relevantSnippets || '(no strong matches from synced content yet)'}`;
-  } else {
-    const reposSnapshot = await db
-      .collection('repositories')
-      .where('ownerId', '==', ownerId)
-      .limit(60)
-      .get();
-    const repos = reposSnapshot.docs.map(doc => {
-      const d = doc.data() as {
-        owner?: string;
-        name?: string;
-        fullName?: string;
-      };
-      return {
-        id: doc.id,
-        fullName: d.fullName ?? `${d.owner ?? 'unknown'}/${d.name ?? 'repo'}`,
-      };
-    });
-
-    const sampledRepoContexts = await Promise.all(
-      repos.slice(0, 10).map(async repo => {
+  const focusRepoId =
+    typeof data.repoId === 'string' && data.repoId.trim().length > 0
+      ? data.repoId.trim()
+      : null;
+  const reposSnapshot = await db
+    .collection('repositories')
+    .where('ownerId', '==', ownerId)
+    .limit(60)
+    .get();
+  const repos = reposSnapshot.docs.map(doc => {
+    const d = doc.data() as {
+      owner?: string;
+      name?: string;
+      fullName?: string;
+    };
+    return {
+      id: doc.id,
+      fullName: d.fullName ?? `${d.owner ?? 'unknown'}/${d.name ?? 'repo'}`,
+    };
+  });
+  if (repos.length > 0) {
+    const orderedRepos = focusRepoId
+      ? [
+          ...repos.filter(repo => repo.id === focusRepoId),
+          ...repos.filter(repo => repo.id !== focusRepoId),
+        ]
+      : repos;
+    const repoFileContexts = await Promise.all(
+      orderedRepos.map(async repo => {
         const filesSnapshot = await db
           .collection('repositories')
           .doc(repo.id)
           .collection('files')
-          .limit(25)
+          .limit(repo.id === focusRepoId ? 500 : 180)
           .get();
-        const paths = filesSnapshot.docs
-          .map(d => (d.data().path as string) ?? d.id)
-          .filter(Boolean)
-          .slice(0, 25);
-        return `${repo.fullName}: ${paths.join(', ') || '(none synced yet)'}`;
+        const files = filesSnapshot.docs.map(d => {
+          const raw = d.data() as { path?: string; content?: string };
+          return {
+            path: typeof raw.path === 'string' ? raw.path : d.id,
+            content: typeof raw.content === 'string' ? raw.content : '',
+          };
+        });
+        const ranked = files
+          .map(file => ({
+            ...file,
+            score: scoreRepoFileForPrompt(file.path, file.content, searchTerms),
+          }))
+          .filter(file => file.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, repo.id === focusRepoId ? 16 : 8);
+        return { repo, files, ranked };
       }),
     );
 
-    repoContext = `The user selected ALL projects. They have ${repos.length} connected repositories. Repository list: ${repos
-      .map(r => r.fullName)
-      .join(', ') || '(none connected)'}. Sample file index across repositories: ${sampledRepoContexts.join(' | ') || '(no files indexed yet)'}.`;
+    const globalRanked = repoFileContexts
+      .flatMap(item =>
+        item.ranked.map(file => ({
+          repoFullName: item.repo.fullName,
+          path: file.path,
+          content: file.content,
+          score: file.score,
+        })),
+      )
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 24);
+
+    inspectedFilesForTrace = globalRanked.map(
+      file => `${file.repoFullName}/${file.path}`,
+    );
+
+    const repoIndexes = repoFileContexts.map(item => {
+      const paths = item.files
+        .map(file => file.path)
+        .filter(Boolean)
+        .slice(0, 60)
+        .join(', ');
+      return `${item.repo.fullName} (${item.files.length} indexed files): ${paths || '(none indexed yet)'}`;
+    });
+
+    const relevantSnippets = globalRanked
+      .map(file => {
+        const normalized = normalizeText(file.content);
+        const shortBody = truncate(normalized, 700);
+        if (!shortBody) {
+          return `- ${file.repoFullName}/${file.path} (matched by path/metadata)`;
+        }
+        return `- ${file.repoFullName}/${file.path}: ${shortBody}`;
+      })
+      .join('\n');
+
+    const focusedRepoName = focusRepoId
+      ? orderedRepos.find(repo => repo.id === focusRepoId)?.fullName ?? null
+      : null;
+    repoContext = `Repository-wide context is loaded for this user.
+${focusedRepoName ? `Focused repository: ${focusedRepoName}.` : 'Focused repository: ALL connected repositories.'}
+Connected repositories (${orderedRepos.length}): ${orderedRepos
+      .map(repo => repo.fullName)
+      .join(', ')}.
+
+Indexed file map (across connected repositories):
+${truncate(repoIndexes.join('\n'), 14000)}
+
+Most relevant files/snippets for this request:
+${relevantSnippets || '(no strong matches from indexed content yet)'}`;
   }
 
   const billingRepoId =
@@ -4366,19 +4393,23 @@ ${relevantSnippets || '(no strong matches from synced content yet)'}`;
 
 ${repoContext}
 
-${dangerMode ? 'Advanced mode: provide decisive implementation guidance and concrete next steps. Still avoid unsafe or impossible claims.' : 'Standard mode: stay concise and practical; ask a short clarifying question only when absolutely required to avoid a wrong answer.'}
+${dangerMode ? 'Advanced mode: execute-first. Do not provide generic guidance or next steps; provide concrete, directly applicable changes/results only. Still avoid unsafe or impossible claims.' : 'Standard mode: stay concise, practical, and execution-first. Do not provide generic guidance or next steps; provide concrete, directly applicable changes/results only. Do not ask clarifying questions unless the request is truly impossible to answer safely without one.'}
 
 How to write replies (this matters most):
 - Sound human: warm, conversational plain English—like a skilled coworker texting back, not a server log or API doc.
 - Avoid: fake log lines ("INFO:", "Result:", "Step 1/3"), robotic bullet walls, tables of metadata, or syntax-heavy dumps unless they asked for raw output.
 - Prefer: short paragraphs, natural phrasing, and code blocks only when code helps. If you use bullets, keep them light and readable.
 - Do not narrate your process ("I will now analyze…") unless it genuinely helps.
-- Never claim you "don't have enough info about the repo" when repo context exists above. Start with the best actionable answer using that context.
-- Do not ask the user to locate files for you as a first step. First, name the likely files/modules yourself and propose concrete edits.
+- Never claim you "don't have enough info about the repo" when repo context exists above.
+- Never ask the user to locate files, confirm project structure, or describe navigation before you act.
+- Do not ask "Would you like me to...", "Can you confirm...", or "Before I apply...".
+- One prompt should trigger action: inspect the provided repo context, identify likely files/modules, and immediately provide concrete edits.
+- If context is partial, proceed with the best high-confidence assumptions and state those assumptions briefly instead of asking questions first.
+- For UI requests, assume standard Flutter patterns in this repo and propose direct file-level changes immediately.
 
 When you need deeper expertise (security, naming, refactor plan, explanation), you may use the recruit_agent tool with a clear role and task; weave the result into your answer in normal language. Do not over-use it for simple questions.
 
-When they ask to make or fix something, default to execution mode (like Cursor): act as if you are making the edits now, name the exact files you will touch, describe the concrete changes in order, and include ready-to-apply code for each changed area. Avoid "just run this" style replies unless a required permission or secret is missing.
+When they ask to make or fix something, default to execution mode (like Codex/Claude/Cursor): act as if you are making the edits now, name the exact files you will touch, describe the concrete changes in order, and include ready-to-apply code for each changed area. Avoid "just run this" style replies unless a required permission or secret is missing.
 If they ask to deploy Firebase functions via git, remind them they can type **deploy functions** or **deploy firebase** in Prompt (dispatches deploy-functions.yml) after adding that workflow and one auth secret in repo Actions secrets: FIREBASE_TOKEN (easy) or FIREBASE_SERVICE_ACCOUNT (recommended)—or use Prompt tools.
 If they ask to run the app via git, remind them they can type **run app**, **run the app**, or **run app via git** in Prompt (dispatches run-app.yml) or use Prompt tools → Run app via Git. Mention installing workflows if missing: **install run app** / **install deploy workflow**.
 

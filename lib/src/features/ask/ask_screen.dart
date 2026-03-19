@@ -543,6 +543,32 @@ class _AskScreenState extends State<AskScreen> {
     );
   }
 
+  Future<void> _clearCurrentThread(ForgeWorkspaceState state) async {
+    final thread = _currentThread(state);
+    if (thread == null || thread.messages.isEmpty || _isWorking) return;
+    final shouldClear = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clear chat?'),
+        content: const Text(
+          'This removes all messages in the current thread.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+    if (shouldClear != true) return;
+    await widget.controller.clearPromptThreadMessages(threadId: thread.id);
+  }
+
   Future<void> _openToolsSheet(ForgeWorkspaceState state) async {
     final repo = state.selectedRepository;
     final branches = <String>{
@@ -945,6 +971,13 @@ class _AskScreenState extends State<AskScreen> {
                             icon: const Icon(Icons.chat_bubble_outline_rounded),
                           ),
                           IconButton(
+                            tooltip: 'Clear chat',
+                            onPressed: messages.isEmpty || isBusy
+                                ? null
+                                : () => _clearCurrentThread(state),
+                            icon: const Icon(Icons.delete_sweep_rounded),
+                          ),
+                          IconButton(
                             tooltip: 'Prompt tools',
                             onPressed: () => _openToolsSheet(state),
                             icon: const Icon(Icons.tune_rounded),
@@ -973,6 +1006,13 @@ class _AskScreenState extends State<AskScreen> {
                               icon: const Icon(
                                 Icons.chat_bubble_outline_rounded,
                               ),
+                            ),
+                            IconButton(
+                              tooltip: 'Clear chat',
+                              onPressed: messages.isEmpty || isBusy
+                                  ? null
+                                  : () => _clearCurrentThread(state),
+                              icon: const Icon(Icons.delete_sweep_rounded),
                             ),
                             IconButton(
                               tooltip: 'Prompt tools',

@@ -170,6 +170,29 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
     }
   }
 
+  Future<void> clearPromptThreadMessages({String? threadId}) async {
+    final targetId = threadId ?? value.selectedPromptThreadId;
+    if (targetId == null) return;
+    final now = DateTime.now();
+    final next = value.promptThreads.map((t) {
+      if (t.id != targetId) return t;
+      if (t.messages.isEmpty) return t;
+      return t.copyWith(
+        messages: const <ForgePromptMessage>[],
+        updatedAt: now,
+      );
+    }).toList();
+    value = value.copyWith(
+      promptThreads: next,
+      isPromptLoading: false,
+      clearPromptStatus: value.promptStatusThreadId == targetId,
+    );
+    final updated = _findPromptThreadById(targetId);
+    if (updated != null) {
+      await _persistPromptThread(updated);
+    }
+  }
+
   Future<void> setPromptThreadRepo(String threadId, String? repoId) async {
     final next = value.promptThreads
         .map((t) => t.id == threadId
@@ -1603,6 +1626,22 @@ jobs:
     return matchIndex != null ? workflows[matchIndex].path : workflows.first.path;
   }
 
+  static String _pickRunAppWorkflowPath(List<ForgeRepoWorkflow> workflows) {
+    if (workflows.isEmpty) return 'run-app.yml';
+    for (final workflow in workflows) {
+      final name = workflow.name.toLowerCase();
+      final path = workflow.path.toLowerCase();
+      final isRunApp = name.contains('run-app') ||
+          path.contains('run-app') ||
+          (name.contains('run') && name.contains('app')) ||
+          (path.contains('run') && path.contains('app'));
+      if (isRunApp) {
+        return workflow.path;
+      }
+    }
+    return 'run-app.yml';
+  }
+
   Future<void> runCheck(ForgeCheckActionType actionType) async {
     final selectedRepository = value.selectedRepository;
     if (selectedRepository == null) {
@@ -1720,11 +1759,21 @@ jobs:
     }
     value = value.copyWith(isRunningCheck: true, clearError: true);
     try {
+      var resolvedWorkflowName = workflowName;
+      if (resolvedWorkflowName.trim().isEmpty ||
+          resolvedWorkflowName.trim() == 'run-app.yml') {
+        var workflows = value.repoWorkflows;
+        if (workflows.isEmpty) {
+          await loadRepoWorkflows();
+          workflows = value.repoWorkflows;
+        }
+        resolvedWorkflowName = _pickRunAppWorkflowPath(workflows);
+      }
       final result = await _repository!.submitCheckAction(
         repoId: selectedRepository.id,
         provider: selectedRepository.providerLabel.toLowerCase(),
         actionType: ForgeCheckActionType.buildProject,
-        workflowName: workflowName,
+        workflowName: resolvedWorkflowName,
       );
       value = value.copyWith(isRunningCheck: false);
       await loadRepoWorkflows();
@@ -1734,7 +1783,7 @@ jobs:
           'forge_run_app_workflow_submitted',
           parameters: <String, Object?>{
             'provider': selectedRepository.provider.name,
-            'workflow': workflowName,
+            'workflow': resolvedWorkflowName,
           },
         ),
       );

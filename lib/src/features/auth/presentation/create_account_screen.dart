@@ -10,10 +10,7 @@ import '../domain/auth_state.dart';
 import '../domain/password_strength.dart';
 
 class CreateAccountScreen extends StatefulWidget {
-  const CreateAccountScreen({
-    super.key,
-    required this.controller,
-  });
+  const CreateAccountScreen({super.key, required this.controller});
 
   final AuthController controller;
 
@@ -47,7 +44,10 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
     if (!_agreeToTerms) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Please accept the Terms of Service and Privacy Policy.')),
+          content: Text(
+            'Please accept the Terms of Service and Privacy Policy.',
+          ),
+        ),
       );
       return;
     }
@@ -88,208 +88,266 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                    ForgePanel(
-                      highlight: true,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Create your $kAppDisplayName account',
-                            style: Theme.of(context).textTheme.headlineMedium,
+                      ForgeReveal(
+                        delay: const Duration(milliseconds: 40),
+                        child: ForgePanel(
+                          highlight: true,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const ForgeBrandMark(showText: true),
+                              const SizedBox(height: 18),
+                              Text(
+                                'Create your $kAppDisplayName account',
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.headlineMedium,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Enter your details below. Use a strong password to keep your account secure.',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Enter your details below. Use a strong password to keep your account secure.',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
-                    if (state.failure != null) ...[
-                      const SizedBox(height: 12),
-                      _MessagePanel(
-                        message: state.failure!.message,
-                        color: ForgePalette.error,
-                        icon: Icons.error_outline_rounded,
-                      ),
-                    ],
-                    if (state.notice != null) ...[
-                      const SizedBox(height: 12),
-                      _MessagePanel(
-                        message: state.notice!,
-                        color: ForgePalette.success,
-                        icon: Icons.check_circle_outline_rounded,
-                      ),
-                    ],
-                    const SizedBox(height: 12),
-                    ForgePanel(
-                      child: Form(
-                        key: _formKey,
+                      AnimatedSize(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOutCubic,
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
-                              'Your details',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 14),
-                            TextFormField(
-                              controller: _fullNameController,
-                              textCapitalization: TextCapitalization.words,
-                              decoration: const InputDecoration(
-                                labelText: 'Full name',
-                                hintText: 'How we\'ll show your name in the app',
-                              ),
-                              validator: (value) {
-                                final s = (value ?? '').trim();
-                                if (s.isEmpty) return 'Enter your full name.';
-                                if (s.length < 2) return 'Use at least 2 characters.';
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 14),
-                            TextFormField(
-                              controller: _emailController,
-                              keyboardType: TextInputType.emailAddress,
-                              autocorrect: false,
-                              decoration: const InputDecoration(
-                                labelText: 'Email',
-                              ),
-                              validator: (value) {
-                                final s = (value ?? '').trim();
-                                if (s.isEmpty) return 'Enter your email.';
-                                if (!s.contains('@') || !s.contains('.')) {
-                                  return 'Enter a valid email address.';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 14),
-                            TextFormField(
-                              controller: _passwordController,
-                              obscureText: _obscurePassword,
-                              decoration: InputDecoration(
-                                labelText: 'Create password',
-                                hintText: 'Min ${PasswordStrength.minLength} chars, mixed case, number, symbol',
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    _obscurePassword
-                                        ? Icons.visibility_off_rounded
-                                        : Icons.visibility_rounded,
-                                    size: 20,
-                                  ),
-                                  onPressed: () =>
-                                      setState(() => _obscurePassword = !_obscurePassword),
+                            if (state.failure != null) ...[
+                              const SizedBox(height: 12),
+                              ForgeReveal(
+                                delay: const Duration(milliseconds: 100),
+                                child: _MessagePanel(
+                                  message: state.failure!.message,
+                                  color: ForgePalette.error,
+                                  icon: Icons.error_outline_rounded,
                                 ),
                               ),
-                              validator: (value) =>
-                                  PasswordStrength.validate(value),
-                            ),
-                            const SizedBox(height: 10),
-                            ValueListenableBuilder<TextEditingValue>(
-                              valueListenable: _passwordController,
-                              builder: (context, value, _) =>
-                                  _PasswordRequirements(password: value.text),
-                            ),
-                            const SizedBox(height: 14),
-                            TextFormField(
-                              controller: _confirmPasswordController,
-                              obscureText: _obscureConfirm,
-                              decoration: InputDecoration(
-                                labelText: 'Confirm password',
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    _obscureConfirm
-                                        ? Icons.visibility_off_rounded
-                                        : Icons.visibility_rounded,
-                                    size: 20,
-                                  ),
-                                  onPressed: () {
-                                    setState(() {
-                                      _obscureConfirm = !_obscureConfirm;
-                                    });
-                                  },
+                            ],
+                            if (state.notice != null) ...[
+                              const SizedBox(height: 12),
+                              ForgeReveal(
+                                delay: const Duration(milliseconds: 100),
+                                child: _MessagePanel(
+                                  message: state.notice!,
+                                  color: ForgePalette.success,
+                                  icon: Icons.check_circle_outline_rounded,
                                 ),
                               ),
-                              validator: (value) {
-                                if ((value ?? '').trim().isEmpty) {
-                                  return 'Confirm your password.';
-                                }
-                                if (value != _passwordController.text) {
-                                  return 'Passwords do not match.';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 18),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                SizedBox(
-                                  height: 24,
-                                  width: 24,
-                                  child: Checkbox(
-                                    value: _agreeToTerms,
-                                    onChanged: (v) =>
-                                        setState(() => _agreeToTerms = v ?? false),
-                                    fillColor: WidgetStateProperty.resolveWith((states) {
-                                      if (states.contains(WidgetState.selected)) {
-                                        return ForgePalette.primaryAccent;
-                                      }
-                                      return null;
-                                    }),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.only(top: 2),
-                                    child: _TermsText(
-                                      onOpenTerms: () {
-                                        Navigator.of(context).push(
-                                          MaterialPageRoute(
-                                            builder: (_) => const LegalDocumentScreen(
-                                              title: 'Terms of Service',
-                                              assetPath: 'assets/legal/terms_of_service.md',
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                      onOpenPrivacy: () {
-                                        Navigator.of(context).push(
-                                          MaterialPageRoute(
-                                            builder: (_) => const LegalDocumentScreen(
-                                              title: 'Privacy Policy',
-                                              assetPath: 'assets/legal/privacy_policy.md',
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 20),
-                            ForgePrimaryButton(
-                              label: 'Create account',
-                              icon: Icons.person_add_rounded,
-                              onPressed: state.isBusy ? null : _submit,
-                              expanded: true,
-                            ),
-                            const SizedBox(height: 12),
-                            ForgeSecondaryButton(
-                              label: 'I already have an account',
-                              icon: Icons.login_rounded,
-                              onPressed: state.isBusy
-                                  ? null
-                                  : () => Navigator.of(context).pop(),
-                              expanded: true,
-                            ),
+                            ],
                           ],
                         ),
                       ),
-                    ),
+                      const SizedBox(height: 12),
+                      ForgeReveal(
+                        delay: const Duration(milliseconds: 140),
+                        child: ForgePanel(
+                          child: Form(
+                            key: _formKey,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Your details',
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.titleMedium,
+                                ),
+                                const SizedBox(height: 14),
+                                TextFormField(
+                                  controller: _fullNameController,
+                                  textCapitalization: TextCapitalization.words,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Full name',
+                                    hintText:
+                                        'How we\'ll show your name in the app',
+                                  ),
+                                  validator: (value) {
+                                    final s = (value ?? '').trim();
+                                    if (s.isEmpty) {
+                                      return 'Enter your full name.';
+                                    }
+                                    if (s.length < 2) {
+                                      return 'Use at least 2 characters.';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 14),
+                                TextFormField(
+                                  controller: _emailController,
+                                  keyboardType: TextInputType.emailAddress,
+                                  autocorrect: false,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Email',
+                                  ),
+                                  validator: (value) {
+                                    final s = (value ?? '').trim();
+                                    if (s.isEmpty) return 'Enter your email.';
+                                    if (!s.contains('@') || !s.contains('.')) {
+                                      return 'Enter a valid email address.';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 14),
+                                TextFormField(
+                                  controller: _passwordController,
+                                  obscureText: _obscurePassword,
+                                  decoration: InputDecoration(
+                                    labelText: 'Create password',
+                                    hintText:
+                                        'Min ${PasswordStrength.minLength} chars, mixed case, number, symbol',
+                                    suffixIcon: IconButton(
+                                      icon: Icon(
+                                        _obscurePassword
+                                            ? Icons.visibility_off_rounded
+                                            : Icons.visibility_rounded,
+                                        size: 20,
+                                      ),
+                                      onPressed: () => setState(
+                                        () => _obscurePassword =
+                                            !_obscurePassword,
+                                      ),
+                                    ),
+                                  ),
+                                  validator: (value) =>
+                                      PasswordStrength.validate(value),
+                                ),
+                                const SizedBox(height: 10),
+                                ValueListenableBuilder<TextEditingValue>(
+                                  valueListenable: _passwordController,
+                                  builder: (context, value, _) =>
+                                      _PasswordRequirements(
+                                        password: value.text,
+                                      ),
+                                ),
+                                const SizedBox(height: 14),
+                                TextFormField(
+                                  controller: _confirmPasswordController,
+                                  obscureText: _obscureConfirm,
+                                  decoration: InputDecoration(
+                                    labelText: 'Confirm password',
+                                    suffixIcon: IconButton(
+                                      icon: Icon(
+                                        _obscureConfirm
+                                            ? Icons.visibility_off_rounded
+                                            : Icons.visibility_rounded,
+                                        size: 20,
+                                      ),
+                                      onPressed: () {
+                                        setState(() {
+                                          _obscureConfirm = !_obscureConfirm;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                  validator: (value) {
+                                    if ((value ?? '').trim().isEmpty) {
+                                      return 'Confirm your password.';
+                                    }
+                                    if (value != _passwordController.text) {
+                                      return 'Passwords do not match.';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                if (state.isBusy) ...[
+                                  const SizedBox(height: 14),
+                                  ForgeAiIndicator(
+                                    label:
+                                        state.operation ==
+                                            AuthOperation.signingUpWithEmail
+                                        ? 'Creating your account...'
+                                        : 'Preparing your workspace...',
+                                  ),
+                                ],
+                                const SizedBox(height: 18),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SizedBox(
+                                      height: 24,
+                                      width: 24,
+                                      child: Checkbox(
+                                        value: _agreeToTerms,
+                                        onChanged: (v) => setState(
+                                          () => _agreeToTerms = v ?? false,
+                                        ),
+                                        fillColor:
+                                            WidgetStateProperty.resolveWith((
+                                              states,
+                                            ) {
+                                              if (states.contains(
+                                                WidgetState.selected,
+                                              )) {
+                                                return ForgePalette
+                                                    .primaryAccent;
+                                              }
+                                              return null;
+                                            }),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(top: 2),
+                                        child: _TermsText(
+                                          onOpenTerms: () {
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    const LegalDocumentScreen(
+                                                      title: 'Terms of Service',
+                                                      assetPath:
+                                                          'assets/legal/terms_of_service.md',
+                                                    ),
+                                              ),
+                                            );
+                                          },
+                                          onOpenPrivacy: () {
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    const LegalDocumentScreen(
+                                                      title: 'Privacy Policy',
+                                                      assetPath:
+                                                          'assets/legal/privacy_policy.md',
+                                                    ),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 20),
+                                ForgePrimaryButton(
+                                  label: 'Create account',
+                                  icon: Icons.person_add_rounded,
+                                  onPressed: state.isBusy ? null : _submit,
+                                  expanded: true,
+                                ),
+                                const SizedBox(height: 12),
+                                ForgeSecondaryButton(
+                                  label: 'I already have an account',
+                                  icon: Icons.login_rounded,
+                                  onPressed: state.isBusy
+                                      ? null
+                                      : () => Navigator.of(context).pop(),
+                                  expanded: true,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -315,27 +373,29 @@ class _PasswordRequirements extends StatelessWidget {
       children: [
         Text(
           'Password must have:',
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: ForgePalette.textSecondary,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.labelMedium?.copyWith(color: ForgePalette.textSecondary),
         ),
         const SizedBox(height: 6),
         ...List.generate(5, (i) {
           final satisfied = i == 0
               ? PasswordStrength.hasMinLength(password)
               : i == 1
-                  ? PasswordStrength.hasUppercase(password)
-                  : i == 2
-                      ? PasswordStrength.hasLowercase(password)
-                      : i == 3
-                          ? PasswordStrength.hasDigit(password)
-                          : PasswordStrength.hasSpecialChar(password);
+              ? PasswordStrength.hasUppercase(password)
+              : i == 2
+              ? PasswordStrength.hasLowercase(password)
+              : i == 3
+              ? PasswordStrength.hasDigit(password)
+              : PasswordStrength.hasSpecialChar(password);
           return Padding(
             padding: const EdgeInsets.only(bottom: 4),
             child: Row(
               children: [
                 Icon(
-                  satisfied ? Icons.check_circle_rounded : Icons.circle_outlined,
+                  satisfied
+                      ? Icons.check_circle_rounded
+                      : Icons.circle_outlined,
                   size: 16,
                   color: satisfied
                       ? ForgePalette.success
@@ -346,10 +406,10 @@ class _PasswordRequirements extends StatelessWidget {
                   child: Text(
                     PasswordStrength.requirementLabels[i],
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: satisfied
-                              ? ForgePalette.textSecondary
-                              : ForgePalette.textMuted,
-                        ),
+                      color: satisfied
+                          ? ForgePalette.textSecondary
+                          : ForgePalette.textMuted,
+                    ),
                   ),
                 ),
               ],
@@ -362,10 +422,7 @@ class _PasswordRequirements extends StatelessWidget {
 }
 
 class _TermsText extends StatelessWidget {
-  const _TermsText({
-    required this.onOpenTerms,
-    required this.onOpenPrivacy,
-  });
+  const _TermsText({required this.onOpenTerms, required this.onOpenPrivacy});
 
   final VoidCallback onOpenTerms;
   final VoidCallback onOpenPrivacy;
@@ -421,10 +478,9 @@ class _MessagePanel extends StatelessWidget {
           Expanded(
             child: Text(
               message,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: color),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: color),
             ),
           ),
         ],

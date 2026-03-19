@@ -3,13 +3,11 @@ import 'package:flutter/material.dart';
 import '../data/onboarding_storage.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/forge_palette.dart';
+import '../../../core/widgets/forge_ui.dart';
 import 'onboarding_screen.dart';
 
 class OnboardingGate extends StatefulWidget {
-  const OnboardingGate({
-    super.key,
-    required this.child,
-  });
+  const OnboardingGate({super.key, required this.child});
 
   final Widget child;
 
@@ -43,13 +41,24 @@ class _OnboardingGateState extends State<OnboardingGate> {
 
   @override
   Widget build(BuildContext context) {
+    final Widget child;
     if (_completed == true) {
-      return widget.child;
+      child = KeyedSubtree(
+        key: const ValueKey('onboarding-complete'),
+        child: widget.child,
+      );
+    } else if (_completed == false && _storage != null) {
+      child = KeyedSubtree(
+        key: const ValueKey('onboarding-flow'),
+        child: OnboardingScreen(onComplete: _completeOnboarding),
+      );
+    } else {
+      child = KeyedSubtree(
+        key: const ValueKey('onboarding-loading'),
+        child: _OnboardingLoading(),
+      );
     }
-    if (_completed == false && _storage != null) {
-      return OnboardingScreen(onComplete: _completeOnboarding);
-    }
-    return _OnboardingLoading();
+    return ForgeAnimatedSwap(child: child);
   }
 }
 

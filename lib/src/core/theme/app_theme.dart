@@ -98,9 +98,12 @@ class ForgeAiTheme {
       dividerColor: ForgePalette.border.withValues(alpha: 0.6),
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: <TargetPlatform, PageTransitionsBuilder>{
-          TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
-          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-          TargetPlatform.macOS: FadeForwardsPageTransitionsBuilder(),
+          TargetPlatform.android: _ForgePageTransitionsBuilder(),
+          TargetPlatform.iOS: _ForgePageTransitionsBuilder(),
+          TargetPlatform.macOS: _ForgePageTransitionsBuilder(),
+          TargetPlatform.linux: _ForgePageTransitionsBuilder(),
+          TargetPlatform.windows: _ForgePageTransitionsBuilder(),
+          TargetPlatform.fuchsia: _ForgePageTransitionsBuilder(),
         },
       ),
       appBarTheme: AppBarTheme(
@@ -245,4 +248,66 @@ class ForgeAiTheme {
       Color(0xFF112845),
     ],
   );
+}
+
+class _ForgePageTransitionsBuilder extends PageTransitionsBuilder {
+  const _ForgePageTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    return _ForgePageTransition(
+      animation: animation,
+      secondaryAnimation: secondaryAnimation,
+      child: child,
+    );
+  }
+}
+
+class _ForgePageTransition extends StatelessWidget {
+  const _ForgePageTransition({
+    required this.animation,
+    required this.secondaryAnimation,
+    required this.child,
+  });
+
+  final Animation<double> animation;
+  final Animation<double> secondaryAnimation;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([animation, secondaryAnimation]),
+      child: child,
+      builder: (context, child) {
+        final incoming = Curves.easeOutCubic.transform(animation.value);
+        final outgoing = Curves.easeOutCubic.transform(
+          secondaryAnimation.value,
+        );
+        final opacity = (0.2 + (incoming * 0.8)).clamp(0.0, 1.0);
+        final scale = (0.985 + (incoming * 0.015) - (outgoing * 0.008)).clamp(
+          0.976,
+          1.0,
+        );
+        final translation = Offset(
+          ((1 - incoming) * 0.03) - (outgoing * 0.012),
+          ((1 - incoming) * 0.018) - (outgoing * 0.008),
+        );
+        return FractionalTranslation(
+          translation: translation,
+          child: Transform.scale(
+            scale: scale,
+            alignment: Alignment.center,
+            child: Opacity(opacity: opacity, child: child),
+          ),
+        );
+      },
+    );
+  }
 }
