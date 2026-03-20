@@ -156,9 +156,9 @@ class _AuthEntryScreenState extends State<AuthEntryScreen> {
                     child: const _LaunchFeatureCard(
                       icon: Icons.auto_awesome_rounded,
                       accent: ForgePalette.sparkAccent,
-                      title: 'Prompt-to-code help',
+                      title: 'Repo-aware agent',
                       subtitle:
-                          'Describe an edit in plain language and keep every suggestion reviewable.',
+                          'Describe an edit in plain language and keep every generated repo diff reviewable.',
                     ),
                   ),
                   SizedBox(

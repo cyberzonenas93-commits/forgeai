@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/forge_palette.dart';
 import '../../../shared/widgets/forge_widgets.dart';
 import '../../workspace/domain/forge_agent_entities.dart';
+import '../agent_ui_utils.dart';
 
 class FailureStateCard extends StatelessWidget {
   const FailureStateCard({
@@ -22,8 +23,29 @@ class FailureStateCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final maxRetries = task.metadata['maxRetries'] is num
+        ? (task.metadata['maxRetries'] as num).toInt()
+        : null;
+    final hardLimitReached = task.metadata['hardLimitReached'] == true;
+    final failureCategory = formatFailureCategoryLabel(
+      task.metadata['latestFailureCategory'] as String?,
+    );
+    final repairTargetCount = countMetadataList(
+      task.metadata,
+      'repairTargetPaths',
+    );
+    final workspaceSource = formatWorkspaceSourceLabel(
+      task.metadata['workspaceSourceOfTruth'] as String?,
+    );
+    final hardLimitSummary = task.metadata['hardLimitSummary'] is String
+        ? (task.metadata['hardLimitSummary'] as String).trim()
+        : '';
     final details =
-        (task.errorMessage ?? task.latestValidationError ?? 'The run stopped before completion.')
+        (hardLimitSummary.isNotEmpty
+                ? hardLimitSummary
+                : task.errorMessage ??
+                    task.latestValidationError ??
+                    'The run stopped before completion.')
             .trim();
     return ForgePanel(
       highlight: true,
@@ -84,9 +106,36 @@ class FailureStateCard extends StatelessWidget {
               ),
               if (task.retryCount > 0)
                 ForgePill(
-                  label: '${task.retryCount} retries',
+                  label: maxRetries != null
+                      ? '${task.retryCount}/$maxRetries repair passes'
+                      : '${task.retryCount} retries',
                   icon: Icons.refresh_rounded,
                   color: ForgePalette.warning,
+                ),
+              if (failureCategory.isNotEmpty)
+                ForgePill(
+                  label: failureCategory,
+                  icon: Icons.bug_report_rounded,
+                  color: ForgePalette.error,
+                ),
+              if (repairTargetCount != null && repairTargetCount > 0)
+                ForgePill(
+                  label:
+                      '$repairTargetCount targeted file${repairTargetCount == 1 ? '' : 's'}',
+                  icon: Icons.my_location_rounded,
+                  color: ForgePalette.warning,
+                ),
+              if (workspaceSource.isNotEmpty)
+                ForgePill(
+                  label: workspaceSource,
+                  icon: Icons.folder_open_rounded,
+                  color: ForgePalette.textSecondary,
+                ),
+              if (hardLimitReached)
+                const ForgePill(
+                  label: 'Hard limit hit',
+                  icon: Icons.gpp_maybe_rounded,
+                  color: ForgePalette.error,
                 ),
             ],
           ),
@@ -97,6 +146,15 @@ class FailureStateCard extends StatelessWidget {
                   color: ForgePalette.textSecondary,
                 ),
           ),
+          if (hardLimitReached) ...[
+            const SizedBox(height: 10),
+            Text(
+              'The agent kept retrying until it hit the configured stop condition. Open the run log to inspect each failed pass.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: ForgePalette.textMuted,
+                  ),
+            ),
+          ],
           const SizedBox(height: 16),
           Wrap(
             spacing: 10,

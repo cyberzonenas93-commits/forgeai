@@ -16,7 +16,7 @@ firebase deploy --only firestore:rules
 
 ## 2. Deploy Cloud Functions
 
-The backend sends notifications when checks run, git actions complete, repos sync, AI suggestions are ready, and when token balance is low. Deploy the functions:
+The backend sends notifications when checks run, git actions complete, repos sync, AI-generated diffs are ready for review, and when token balance is low. Deploy the functions:
 
 ```bash
 cd functions

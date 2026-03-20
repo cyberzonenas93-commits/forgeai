@@ -33,19 +33,29 @@ class _ChecksDashboardScreenState extends State<ChecksDashboardScreen> {
       builder: (context, state, _) {
         final checks = state.checks;
         final selectedJob = checks.isEmpty ? null : checks.first;
-        final logs = selectedJob == null
+        final detailLines = selectedJob == null
             ? const <String>[
-                'No CI logs yet.',
-                'Connect a repository and run checks to see workflow output here.',
+                'No validation runs yet.',
+                'Manual checks and agent-run validations will appear here once a repository is connected.',
               ]
             : <String>[
                 '[$kAppDisplayName] ${selectedJob.name}',
                 '[Status] ${selectedJob.summary}',
                 '[Duration] ${selectedJob.duration}',
+                if ((selectedJob.source ?? '').trim().isNotEmpty)
+                  '[Source] ${selectedJob.source == 'agent_validation' ? 'Agent validation loop' : 'Manual check run'}',
+                if ((selectedJob.workflowCategory ?? '').trim().isNotEmpty)
+                  '[Category] ${selectedJob.workflowCategory}',
+                if ((selectedJob.ref ?? '').trim().isNotEmpty)
+                  '[Ref] ${selectedJob.ref}',
+                if ((selectedJob.executionState ?? '').trim().isNotEmpty)
+                  '[Execution] ${selectedJob.executionState}',
+                if ((selectedJob.agentTaskId ?? '').trim().isNotEmpty)
+                  '[Agent task] ${selectedJob.agentTaskId}',
                 if (selectedJob.logsAvailable)
-                  '[Logs] Provider log output available through backend sync.'
+                  '[Signals] Findings or provider logs are available below.'
                 else
-                  '[Logs] No logs published yet.',
+                  '[Signals] No findings or provider logs published yet.',
               ];
 
         return Scaffold(
@@ -62,7 +72,7 @@ class _ChecksDashboardScreenState extends State<ChecksDashboardScreen> {
                       const ForgeSectionHeader(
                         title: 'Checks',
                         subtitle:
-                            'Run tests, build, and lint through CI only. GitHub repos need a workflow in .github/workflows/ (e.g. ci.yml) with workflow_dispatch.',
+                            'Run manual CI checks and review agent-driven validation runs in one place. GitHub repos still need workflow_dispatch-enabled workflows in .github/workflows/.',
                       ),
                       const SizedBox(height: 16),
                       Wrap(
@@ -181,6 +191,35 @@ class _ChecksDashboardScreenState extends State<ChecksDashboardScreen> {
                                       context,
                                     ).textTheme.bodySmall,
                                   ),
+                                  if ((job.source ?? '').trim().isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: [
+                                        ForgePill(
+                                          label: job.source == 'agent_validation'
+                                              ? 'Agent validation'
+                                              : 'Manual check',
+                                          icon: job.source == 'agent_validation'
+                                              ? Icons.smart_toy_rounded
+                                              : Icons.play_circle_outline_rounded,
+                                          color: job.source == 'agent_validation'
+                                              ? ForgePalette.glowAccent
+                                              : ForgePalette.primaryAccent,
+                                        ),
+                                        if ((job.workflowCategory ?? '')
+                                            .trim()
+                                            .isNotEmpty)
+                                          ForgePill(
+                                            label:
+                                                job.workflowCategory!.trim(),
+                                            icon: Icons.tune_rounded,
+                                            color: ForgePalette.warning,
+                                          ),
+                                      ],
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
@@ -195,17 +234,77 @@ class _ChecksDashboardScreenState extends State<ChecksDashboardScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        selectedJob?.name ?? 'Live logs',
+                        selectedJob?.name ?? 'Validation details',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 12),
-                      const ForgePill(
-                        label: 'Live logs',
-                        icon: Icons.subject_rounded,
-                        color: ForgePalette.glowAccent,
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          const ForgePill(
+                            label: 'Validation details',
+                            icon: Icons.rule_folder_rounded,
+                            color: ForgePalette.glowAccent,
+                          ),
+                          if ((selectedJob?.source ?? '').trim().isNotEmpty)
+                            ForgePill(
+                              label: selectedJob!.source == 'agent_validation'
+                                  ? 'Agent-driven'
+                                  : 'Manual',
+                              icon: selectedJob.source == 'agent_validation'
+                                  ? Icons.smart_toy_rounded
+                                  : Icons.play_circle_outline_rounded,
+                              color: ForgePalette.primaryAccent,
+                            ),
+                        ],
                       ),
                       const SizedBox(height: 12),
-                      ForgeCodeBlock(lines: logs),
+                      ForgeCodeBlock(lines: detailLines),
+                      if ((selectedJob?.findings ?? const <String>[])
+                          .isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'Structured findings',
+                          style: Theme.of(context).textTheme.labelLarge,
+                        ),
+                        const SizedBox(height: 8),
+                        ...selectedJob!.findings.take(6).map(
+                              (finding) => Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: Text(
+                                  finding,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: ForgePalette.textSecondary,
+                                      ),
+                                ),
+                              ),
+                            ),
+                      ],
+                      if ((selectedJob?.logs ?? const <String>[]).isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'Provider signals',
+                          style: Theme.of(context).textTheme.labelLarge,
+                        ),
+                        const SizedBox(height: 8),
+                        ForgeCodeBlock(lines: selectedJob!.logs.take(8).toList()),
+                      ],
+                      if ((selectedJob?.logsUrl ?? '').trim().isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        SelectableText(
+                          selectedJob!.logsUrl!.trim(),
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(
+                                color: ForgePalette.glowAccent,
+                              ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -228,7 +327,7 @@ class _ChecksDashboardScreenState extends State<ChecksDashboardScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Check queued successfully.')),
+        const SnackBar(content: Text('Check started. Results will stream into the dashboard.')),
       );
     } catch (error) {
       if (!context.mounted) {

@@ -10,7 +10,11 @@ export interface FileSummaryResult {
   summary: string;
   keywords: string[];
   imports: string[];
+  exports: string[];
   symbolHints: string[];
+  role: string;
+  architectureHints: string[];
+  isEntrypoint: boolean;
   embeddingText: string;
 }
 
@@ -115,6 +119,20 @@ function extractSymbols(content: string) {
   );
 }
 
+function extractExports(content: string) {
+  const matches = [
+    ...content.matchAll(/^\s*export\s+(?:class|function|const|let|var|enum|interface|type)\s+([A-Za-z_][A-Za-z0-9_]*)/gm),
+    ...content.matchAll(/^\s*(?:class|enum|interface|typedef)\s+([A-Za-z_][A-Za-z0-9_]*)/gm),
+    ...content.matchAll(/^\s*(?:Future<[^>]+>\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\(/gm),
+  ];
+  return dedupe(
+    matches
+        .map(match => match[1] ?? '')
+        .filter(value => value.length >= 3 && !STOP_WORDS.has(value.toLowerCase())),
+    12,
+  );
+}
+
 function extractContentKeywords(content: string) {
   const tokens = content
     .toLowerCase()
@@ -160,37 +178,142 @@ function classifyRole(path: string, content: string) {
   return 'source file';
 }
 
+function inferArchitectureHints(params: {
+  path: string;
+  content: string;
+  imports: string[];
+  symbols: string[];
+  role: string;
+}) {
+  const hints = <string[]>[];
+  const lowerPath = params.path.toLowerCase();
+  const lowerContent = params.content.toLowerCase();
+  const joinedImports = params.imports.join(' ').toLowerCase();
+  const joinedSymbols = params.symbols.join(' ').toLowerCase();
+
+  if (
+    lowerPath.endsWith('/main.dart') ||
+    lowerPath.endsWith('/main.ts') ||
+    lowerPath.endsWith('/main.js') ||
+    lowerPath.endsWith('/app.dart') ||
+    lowerPath.endsWith('/app.ts') ||
+    lowerPath.endsWith('/app.js')
+  ) {
+    hints.push('entrypoint');
+  }
+  if (lowerPath.includes('/auth/') || lowerContent.includes('firebaseauth') || joinedSymbols.includes('auth')) {
+    hints.push('auth');
+  }
+  if (lowerPath.includes('/repo') || lowerPath.includes('/repository') || lowerContent.includes('repository')) {
+    hints.push('repository');
+  }
+  if (lowerPath.includes('/service') || lowerContent.includes('service')) {
+    hints.push('service');
+  }
+  if (lowerPath.includes('/widget') || lowerPath.includes('/screen') || params.role.includes('widget')) {
+    hints.push('ui');
+  }
+  if (lowerPath.startsWith('functions/src/') || lowerContent.includes('oncall(') || lowerContent.includes('firebase-functions')) {
+    hints.push('backend');
+  }
+  if (lowerPath.includes('/routes/') || lowerPath.includes('/navigation/') || lowerContent.includes('navigator')) {
+    hints.push('navigation');
+  }
+  if (lowerPath.includes('/model') || lowerPath.includes('/entities') || lowerPath.includes('/domain/')) {
+    hints.push('domain');
+  }
+  if (lowerPath.startsWith('.github/workflows/') || lowerPath.endsWith('.yml') || lowerPath.endsWith('.yaml')) {
+    hints.push('workflow');
+  }
+  if (joinedImports.includes('flutter') || lowerContent.includes('statelesswidget') || lowerContent.includes('statefulwidget')) {
+    hints.push('flutter');
+  }
+  if (lowerContent.includes('firestore') || lowerContent.includes('firebase')) {
+    hints.push('firebase');
+  }
+
+  return dedupe(hints, 8);
+}
+
+function inferEntrypoint(path: string, hints: string[], role: string) {
+  const lowerPath = path.toLowerCase();
+  return (
+    hints.includes('entrypoint') ||
+    lowerPath === 'readme.md' ||
+    lowerPath.startsWith('.github/workflows/') ||
+    lowerPath.endsWith('/main.dart') ||
+    lowerPath.endsWith('/main.ts') ||
+    lowerPath.endsWith('/main.js') ||
+    lowerPath.endsWith('/app.dart') ||
+    lowerPath.endsWith('/app.ts') ||
+    lowerPath.endsWith('/app.js') ||
+    role === 'workflow/config'
+  );
+}
+
 function buildSummary(path: string, content: string, language: string | null | undefined) {
   const role = classifyRole(path, content);
   const imports = extractImports(content).slice(0, 3);
   const symbols = extractSymbols(content).slice(0, 3);
+  const architectureHints = inferArchitectureHints({
+    path,
+    content,
+    imports,
+    symbols,
+    role,
+  }).slice(0, 2);
   const parts = [
     `${path} is a ${role}`,
     language ? `written in ${language}` : '',
     imports.length > 0 ? `that depends on ${imports.join(', ')}` : '',
     symbols.length > 0 ? `and exposes ${symbols.join(', ')}` : '',
+    architectureHints.length > 0 ? `with architecture hints ${architectureHints.join(', ')}` : '',
   ].filter(Boolean);
   return truncate(normalizeWhitespace(parts.join(' ')), 260);
 }
 
 export function generateFileSummary(input: FileSummaryInput): FileSummaryResult {
-  const content = normalizeWhitespace(input.content ?? input.contentPreview ?? '');
-  const imports = extractImports(content);
-  const symbolHints = extractSymbols(content);
+  const rawContent = input.content ?? input.contentPreview ?? '';
+  const normalizedContent = normalizeWhitespace(rawContent);
+  const imports = extractImports(rawContent);
+  const symbolHints = extractSymbols(rawContent);
+  const exports = extractExports(rawContent);
+  const role = classifyRole(input.path, rawContent);
+  const architectureHints = inferArchitectureHints({
+    path: input.path,
+    content: rawContent,
+    imports,
+    symbols: symbolHints,
+    role,
+  });
+  const isEntrypoint = inferEntrypoint(input.path, architectureHints, role);
   const keywords = dedupe(
     [
       ...pathTokens(input.path),
       ...(input.language ? [input.language.toLowerCase()] : []),
       ...imports.flatMap(value => value.toLowerCase().split(/[^a-z0-9]+/)),
+      ...exports.map(value => value.toLowerCase()),
       ...symbolHints.map(value => value.toLowerCase()),
-      ...extractContentKeywords(content),
+      ...architectureHints,
+      role.toLowerCase(),
+      ...extractContentKeywords(normalizedContent),
     ],
     24,
   );
-  const summary = buildSummary(input.path, content, input.language);
+  const summary = buildSummary(input.path, rawContent, input.language);
   const embeddingText = truncate(
     normalizeWhitespace(
-      [input.path, summary, keywords.join(' '), imports.join(' '), symbolHints.join(' ')]
+      [
+        input.path,
+        summary,
+        keywords.join(' '),
+        imports.join(' '),
+        exports.join(' '),
+        symbolHints.join(' '),
+        role,
+        architectureHints.join(' '),
+        isEntrypoint ? 'entrypoint' : '',
+      ]
         .filter(Boolean)
         .join(' '),
     ),
@@ -200,7 +323,11 @@ export function generateFileSummary(input: FileSummaryInput): FileSummaryResult 
     summary,
     keywords,
     imports,
+    exports,
     symbolHints,
+    role,
+    architectureHints,
+    isEntrypoint,
     embeddingText,
   };
 }

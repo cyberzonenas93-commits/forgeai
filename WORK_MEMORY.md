@@ -1,86 +1,134 @@
 # CodeCatalystAI Working Memory
 
-## Mission
-- Build a production-oriented Flutter mobile app called CodeCatalystAI.
-- Keep the app App Store safe: no terminal UI, no raw command execution, no remote desktop behavior.
-- All AI and Git actions must be user-triggered, visible, reviewable, and approval-based.
+## Current System In One Pass
+CodeCatalystAI is a distributed, agent-first mobile coding system.
 
-## Known Environment
-- Workspace root: `/Users/angelonartey/Desktop/ForgeAI`
-- Flutter: `3.41.1`
-- Dart: `3.11.0`
-- Firebase project id: `forgeai-555ee`
-- Android package: `com.forgeai.app`
-- iOS bundle id: `com.forgeai.app`
+The strongest path today is:
 
-## Product Constraints
-- Frontend: Flutter
-- Backend: Firebase Auth, Firestore, Cloud Functions
-- Providers: OpenAI, Anthropic, Gemini
-- Git providers: GitHub and GitHub APIs
-- Checks system only via GitHub Actions / GitHub CI
-- No terminal, shell, remote execution, or arbitrary command runner
+`prompt -> enqueueAgentTask -> repo lock -> runAgentTask dispatch -> processDistributedAgentWorker claim -> processAgentTaskRun -> layered repo context -> task-local cloned workspace -> structured multi-file diff -> sandbox validation/repair loop -> approval -> apply to task-local workspace -> post-apply validation -> commit/PR/merge/deploy follow-up`
 
-## Active Workstreams
-- Bootstrap Flutter project from scratch in this workspace.
-- Create `agents.md` and assign domain ownership.
-- Keep the now-live app shell, auth, workspace, and backend contracts green after the integration pass.
-- Maintain docs, Firestore rules, and verification notes in sync with the real implementation.
-- Drive the repo from build-verified to launch-ready beta with deploy scripts, provider setup docs, smoke-test harnesses, observability, and token-economics guardrails.
+This is the current product truth.
 
-## Decisions
-- Use `com.forgeai.app` to match the provided Firebase files.
-- Prefer Riverpod for modular state management and testable feature boundaries.
-- Use mock-friendly service interfaces so backend/API implementations can be swapped or completed incrementally.
-- Keep a preview/offline workspace controller path for widget tests where Firebase is not initialized.
+## What Is Already Built
+- Durable task queueing with per-repo serialization.
+- Distributed worker runs with leases, heartbeats, and stale-worker recovery.
+- Layered repo awareness with repo knowledge map, module summaries, architecture zones, progressive hydration, and execution memory.
+- Task-local cloned git workspace for the main execution path.
+- Sandbox validation before apply approval.
+- Post-apply validation and git-native follow-up actions.
+- Structured tool layer and tool-execution history.
+- Iterative repair loop with structured failure reuse, repeated-failure memory, strategy escalation, and narrow-first validation reruns.
+- Stage-aware and cost-aware provider routing across `openai`, `anthropic`, and `gemini`.
+- Logical planner/context/editor/validator/repair/git orchestration inside one visible agent.
+- Live agent UI with queue state, repo-understanding visibility, validation history, and approvals.
 
-## Integration Notes
-- There was no existing Flutter project or Git repo in this folder at start.
-- Root already contains `google-services.json` and `GoogleService-Info.plist`.
-- Re-read this file before major edits or integration steps.
-- Root branding source folder (if present) is `ForgeAI_iOS_Icons/` — legacy on-disk name; see `tool/generate_branding_assets.dart`.
-- `tool/generate_branding_assets.dart` is the current helper for producing branding assets from the icon pack.
-- Local provider secrets should live in git-ignored env files under `functions/`; never store raw keys in tracked docs or source files.
-- GitHub account sign-in is implemented in the Flutter auth flow; setup still depends on enabling the GitHub provider in Firebase Authentication and using `https://forgeai-555ee.firebaseapp.com/__/auth/handler` as the OAuth callback URL.
+## What Firestore Does
+Firestore is the control plane and durable memory plane.
 
-## Implementation Status
-- CodeCatalystAI now has a custom app entrypoint, auth gate, signed-in home shell, and feature hubs wired to agent-built screens.
-- Workflow modules exist under `lib/src/features/editor`, `diff`, `ai`, `checks`, `wallet`, `activity`, and `git`.
-- UI modules exist under `lib/src/features/dashboard`, `repos`, `settings`, and `lib/src/shared`.
-- Auth/account modules exist under `lib/src/features/auth`, `account`, and `lib/src/core/firebase`.
-- Firebase backend/docs package exists under `functions/` plus root docs and Firebase config files.
-- The UI layer now uses a shared premium dark design system under `lib/src/core/theme` and `lib/src/core/widgets`.
-- The app now has a custom animated splash screen, premium auth entry flow, redesigned dashboard, repository browser, editor workflow, diff review, checks, wallet, activity timeline, and settings UI.
-- Native splash and launcher icon resources were regenerated from the root icon pack and branding assets.
-- FirebaseAuth-backed auth is now wired in through a dedicated repository, with guest, email/password, Google, Apple, and GitHub flows plus reauthentication, sign-out, and delete-account handling.
-- GitHub sign-in setup is now documented with the Firebase/GitHub OAuth callback path, and the auth layer surfaces a GitHub-specific configuration error when the provider is not enabled correctly.
-- Cloud Functions now expose provider config lookup, repository connect/sync, repository file loading, AI suggestion orchestration, Git action scaffolding, check dispatch scaffolding, and wallet movement helpers.
-- A live workspace controller and repository now bind Firestore repositories, provider connections, file trees, editor drafts, AI change requests, checks, wallet data, and activity into the Flutter shell.
-- Repository connection now supports GitHub/GitHub slug entry plus access-token-backed sync from the mobile app.
-- The editor, diff review, Git flow, checks dashboard, wallet, activity history, and settings screens now read from live workspace state instead of static mock-only props.
-- The repository browser no longer falls back to mock file data when no live repository is selected.
-- Launch automation now includes env validation, Firebase deploy wrappers, smoke-test checklist runners, and screenshot-studio routes for release asset capture.
-- Backend runtime validation is centralized in `functions/src/runtime.ts`, pricing is centralized in `functions/src/pricing.ts`, and Cloud Functions now emit structured `opsMetrics` plus richer wallet usage telemetry.
-- Wallet reservation/capture flows now enforce daily action caps, monthly wallet limits, and release tokens on queued Git/check failure paths or empty commit payloads.
-- Native release prep now includes Android release-signing templates, Crashlytics plugin wiring, iOS Sign in with Apple entitlements, and iOS Firebase/Google auth URL schemes.
-- Launch docs now exist for provider setup, deployment, smoke tests, device testing, release config, observability, token economics, and beta release operations.
+Firestore stores:
+- synced repo metadata
+- repo index or map artifacts
+- execution sessions
+- agent tasks
+- task events
+- approvals
+- worker runs
+- checks
+- wallet and cost metadata
+- compatibility data
 
-## Verification Status
-- `flutter analyze` passed after the UI redesign and Firebase auth integration.
-- `flutter test` passed after fixing a responsive overflow in `ForgeBrandMark` and wiring the Firebase auth repository.
-- `flutter build apk --debug` passed after the UI redesign and produced `build/app/outputs/flutter-apk/app-debug.apk`.
-- `npm run build` passed in `functions/`.
-- `flutter build ios --simulator` passed after the live workspace integration pass and produced `build/ios/iphonesimulator/Runner.app`.
-- `npm --prefix functions run build` passed after the launch-readiness backend changes.
-- `npm run simulate:tokens` passed and modeled >90% gross margin across light, typical, and heavy beta usage profiles.
-- `node ./tool/validate_launch_env.mjs --strict` currently fails only on expected live-secret / console blockers, not on repo wiring.
-- `npm run build:ios:sim` stalled inside local `xcodebuild` during the launch pass on this machine, so iOS simulator verification needs one clean rerun outside the hung local session before beta sign-off.
+Firestore is not the strongest-path execution workspace.
+Firestore is not the source of truth for live repair attempts.
 
-## Platform Notes
-- Android package and iOS bundle identifiers are aligned to `com.forgeai.app`.
-- iOS deployment target had to be raised to `15.0` for the current Firebase/Firestore stack.
-- Android splash resources live under `android/app/src/main/res/drawable*` and Android launcher icons were regenerated in `android/app/src/main/res/mipmap-*`.
-- iOS launcher icons live under `ios/Runner/Assets.xcassets/AppIcon.appiconset`, and iOS launch images were regenerated under `ios/Runner/Assets.xcassets/LaunchImage.imageset`.
-- Firestore rules now cover `users/{uid}/connections/{provider}` and restrict repository file reads/writes to the owning user.
-- Current in-repo Firebase environment separation is still single-project only (`forgeai-555ee`).
-- GitHub beta flow is token-based; full GitHub mobile OAuth is not yet implemented.
+## What The Main Execution Workspace Is
+The strongest execution workspace is task-local and git-native.
+
+The runtime:
+1. clones the repo into a task-local workspace
+2. creates sandbox copies for validation
+3. applies validated edits to the task-local workspace
+4. runs real git commit/push/PR flows from that workspace
+5. keeps repair attempts anchored to the failing sandbox or task-local workspace instead of a Firestore draft snapshot
+
+Primary files:
+- `functions/src/index.ts`
+- `functions/src/ephemeral_workspace.ts`
+
+## Strongest Files To Inspect First
+- `functions/src/index.ts`
+- `functions/src/distributed_agent_runtime.ts`
+- `functions/src/ephemeral_workspace.ts`
+- `functions/src/repo_knowledge_map.ts`
+- `functions/src/repo_context_strategy.ts`
+- `functions/src/repo_index_service.ts`
+- `functions/src/repo_execution_format.ts`
+- `functions/src/agent_validation_tools.ts`
+- `functions/src/tool_registry.ts`
+- `functions/src/tool_executor.ts`
+- `functions/src/cost_optimization.ts`
+- `functions/src/multi_agent_system.ts`
+- `functions/src/routing_engine.ts`
+- `lib/src/features/workspace/application/forge_workspace_controller.dart`
+- `lib/src/features/workspace/data/forge_workspace_repository.dart`
+- `lib/src/features/agent/agent_mode_screen.dart`
+- `lib/src/features/agent/agent_task_details_screen.dart`
+- `lib/src/features/diff/diff_review_screen.dart`
+
+## Deprecated Or Compatibility Paths
+These exist in code but are not the primary architecture:
+- `askRepo`
+- `suggestChange`
+- `applyRepoExecution`
+- `apply_file_edits`
+- any chat-first mounted surface
+- any single-file suggestion-first flow
+- any Firestore-draft-only execution path used as the main agent path
+
+If a future task touches these, keep the change compatibility-scoped and do not let them become the default product path again.
+
+## Remaining Gaps Versus Claude Code / Cursor
+- No arbitrary shell or terminal substrate.
+- No fully open local test/build/stdout loop.
+- Repo understanding still starts from synced metadata plus progressive hydration before execution shifts into the local clone.
+- Distributed workers are Firebase-triggered, not a dedicated Cloud Run worker fleet.
+- Provider routing is heuristic plus cost-aware, not benchmark-adaptive.
+- Validation branch cleanup is still incomplete.
+- Embeddings and vector retrieval are still not implemented.
+- Repair strategy escalation is stronger now, but it is still policy-driven rather than learned from cross-task historical outcomes.
+
+## Current Risks
+- Firestore is still heavily involved in coordination, so architecture drift can happen if future work confuses the control plane with the execution workspace.
+- Compatibility endpoints still exist and are easy to accidentally revive if future sessions do not read the memory docs first.
+- Some historical docs still discuss older architectures in contrast. Use `AGENTS.md`, `WORK_MEMORY.md`, `ARCHITECTURE_GUARDRAILS.md`, and `AGENT_RUNTIME_ARCHITECTURE.md` as the current truth.
+- Repeated-failure memory is task-scoped. Future work should avoid accidentally treating it as repo-global truth or training data.
+
+## Verification Floor
+Use this verification floor for runtime or architecture changes:
+- `npm --prefix /Users/angelonartey/Desktop/ForgeAI/functions run lint`
+- `npm --prefix /Users/angelonartey/Desktop/ForgeAI/functions run build`
+- `dart analyze /Users/angelonartey/Desktop/ForgeAI/lib/src test`
+- `flutter test`
+
+Use broader checks when the change warrants them:
+- `npm run verify:launch`
+- `npm run smoke:backend`
+- `node ./tool/validate_launch_env.mjs --strict`
+
+## Next Priority Directions
+- Expand the allowlisted local tool surface without opening arbitrary shell execution.
+- Decide whether to move distributed workers to Cloud Run or another dedicated worker pool.
+- Continue deprecating or isolating compatibility paths.
+- Improve validation branch cleanup.
+- Push repo understanding closer to local-clone indexing instead of synced-metadata-first bootstrapping.
+- Consider whether repeated-failure patterns should inform future routing heuristics across tasks without weakening task-local determinism.
+
+## Startup Rule For Future AI Runs
+Before making architecture changes, answer these five questions:
+
+1. Does the change preserve the distributed durable agent path?
+2. Does it preserve validation-before-apply?
+3. Does it preserve task-local git-native execution?
+4. Does it preserve deep repo context and execution memory?
+5. Does it keep compatibility paths secondary?
+
+If any answer is no, stop and reconsider the change before implementing it.

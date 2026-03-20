@@ -49,7 +49,7 @@ Use the support email anywhere App Store Connect asks for a technical or support
 
 ## Promotional text (max 170 characters; can be updated without a new binary in many cases)
 
-Browse repos, edit code, and request AI suggestions on the go—then review diffs before you commit. Connect GitHub or GitHub, manage branches and PRs/MRs, and trigger CI checks. No terminal or shell.
+Browse repos, edit code, and start AI agent runs on the go—then review diffs before you commit. Connect GitHub or GitHub, manage branches and PRs/MRs, and trigger CI checks. No terminal or shell.
 
 ## Description (App Store; max 4000 characters; review-safe, no misleading claims)
 
@@ -59,7 +59,7 @@ WHAT YOU CAN DO
 • Sign in with guest access, email, Google, Sign in with Apple, or GitHub
 • Connect GitHub or GitHub and browse your repositories
 • Open files, edit code, and review changes with a clear diff view
-• Request AI-assisted suggestions for your code; review output before applying
+• Start AI-assisted agent runs for your code; review output before applying
 • Create branches, commit, and open pull requests or merge requests where your provider allows
 • View and trigger CI workflows (for example GitHub Actions or GitHub CI) and see results
 • Use a built-in wallet for usage accounting; optional subscriptions and token packs via In-App Purchase
@@ -72,7 +72,7 @@ WHAT THE APP IS NOT
 • No merging or pushing changes without your explicit review and confirmation where applicable
 
 PRIVACY AND AI
-• AI features send your prompts and relevant code to our backend and third-party AI providers to generate suggestions. You control when this runs.
+• AI features send your prompts and relevant code to our backend and third-party AI providers to generate code changes. You control when this runs.
 • Privacy Policy: https://forgeai-555ee.web.app/privacy
 • Support: https://forgeai-555ee.web.app/support
 
@@ -86,7 +86,7 @@ git,github,github,code,editor,developer,repository,branch,commit,pullrequest,AI,
 
 ## What’s New (for first release or version 1.0.0)
 
-Initial release: connect GitHub or GitHub, browse and edit repository files, review diffs, user-initiated AI suggestions, branch and PR/MR workflows, optional CI triggers, wallet and In-App Purchases for plans and token packs, Sign in with Apple alongside other sign-in options, and in-app account deletion.
+Initial release: connect GitHub or GitHub, browse and edit repository files, review diffs, user-initiated AI agent runs, branch and PR/MR workflows, optional CI triggers, wallet and In-App Purchases for plans and token packs, Sign in with Apple alongside other sign-in options, and in-app account deletion.
 
 ## Categories
 
@@ -183,7 +183,7 @@ Use this text (adjust only if something is no longer true):
 ---
 For App Review — CodeCatalystAI
 
-Purpose: Mobile developer tool to browse GitHub/GitHub repositories, edit files, review diffs, and create branches, commits, and pull/merge requests. Optional user-initiated AI suggestions; changes are shown for review before commit or PR/MR. Optional CI workflow triggers and results. Wallet with In-App Purchase subscriptions and token packs.
+Purpose: Mobile developer tool to browse GitHub/GitHub repositories, edit files, review diffs, and create branches, commits, and pull/merge requests. Optional user-initiated AI agent runs generate changes that are shown for review before commit or PR/MR. Optional CI workflow triggers and results. Wallet with In-App Purchase subscriptions and token packs.
 
 Safety: No terminal, no shell, no remote desktop, no VM streaming, no arbitrary command execution, no autonomous merge without user approval.
 
@@ -191,7 +191,7 @@ Sign-in: Guest, email/password, Google, Sign in with Apple, GitHub. Account dele
 
 Legal: Privacy Policy and Terms are linked in-app. Privacy Policy URL: https://forgeai-555ee.web.app/privacy — Support: https://forgeai-555ee.web.app/support
 
-AI disclosure: Suggestions are generated using third-party AI services; prompts and relevant code are sent when the user requests a suggestion.
+AI disclosure: AI-generated code changes are produced using third-party AI services; prompts and relevant code are sent when the user requests an agent run.
 
 Contact for review: angelonartey@hotmail.com — +233595494113
 ---

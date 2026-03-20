@@ -4,7 +4,7 @@
 
 ## App Purpose
 
-CodeCatalystAI is a mobile-first developer companion for repository browsing, code editing, AI-assisted suggestion generation, diff review, commit preparation, pull request / merge request creation, and CI workflow triggering.
+CodeCatalystAI is a mobile-first developer companion for repository browsing, code editing, AI-assisted agent runs that prepare code changes, diff review, commit preparation, pull request / merge request creation, and CI workflow triggering.
 
 ## Important Safety Boundaries
 
@@ -25,7 +25,7 @@ CodeCatalystAI is a mobile-first developer companion for repository browsing, co
 ## Privacy and Legal
 
 - Our Privacy Policy and Terms of Service are linked in-app (auth screen footer and Settings → Legal)
-- We disclose that AI suggestions are provided by third-party services and that user prompts and code are sent to those services to generate results
+- We disclose that AI-generated code changes are provided by third-party services and that user prompts and code are sent to those services to generate results
 - We use industry-standard practices for data handling and do not sell user data
 
 ## Code Editing and AI
@@ -56,4 +56,4 @@ This account is configured on the backend for **unlimited in-app tokens** during
 
 ## Reviewer Copy (short description for review)
 
-CodeCatalystAI is a mobile repository review and editing app for developers. It lets users authenticate, connect repositories, inspect files, make manual edits, request AI-generated code suggestions, review diffs, approve changes, create branches, commit, open pull requests or merge requests, and trigger CI workflows. The app does not provide shell access, remote desktop behavior, or unrestricted code execution. Privacy Policy and Terms of Service are available in-app.
+CodeCatalystAI is a mobile repository review and editing app for developers. It lets users authenticate, connect repositories, inspect files, make manual edits, start AI agent runs that generate code changes, review diffs, approve changes, create branches, commit, open pull requests or merge requests, and trigger CI workflows. The app does not provide shell access, remote desktop behavior, or unrestricted code execution. Privacy Policy and Terms of Service are available in-app.

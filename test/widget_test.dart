@@ -11,12 +11,16 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: ForgeAiApp()));
     for (var i = 0; i < 40; i++) {
       await tester.pump(const Duration(milliseconds: 100));
-      if (find.text('Welcome back').evaluate().isNotEmpty) {
+      if (find.text('Sign in').evaluate().isNotEmpty) {
         break;
       }
     }
 
-    expect(find.text('Welcome back'), findsOneWidget);
-    expect(find.text('Sign in'), findsOneWidget);
+    expect(find.text('Sign in'), findsWidgets);
+    expect(
+      find.text('Stay close to your code, even when you are away from the desk.'),
+      findsOneWidget,
+    );
+    await tester.pumpAndSettle(const Duration(milliseconds: 400));
   });
 }

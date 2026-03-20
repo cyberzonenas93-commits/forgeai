@@ -45,9 +45,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     ),
     _OnboardingPage(
       label: 'Build',
-      title: 'Prompt to change code',
+      title: 'Queue an agent run',
       subtitle:
-          'Describe what you want in plain language. Get AI suggestions, review every change, and approve before it ships.',
+          'Describe the change in plain language. Let the agent inspect the repo, prepare diffs, and keep approval before shipping.',
       icon: Icons.auto_awesome_rounded,
       accent: Color(0xFF38BDF8),
       heroOffsets: [Offset(0.7, 0.2), Offset(0.15, 0.5), Offset(0.6, 0.75)],
@@ -547,7 +547,7 @@ class _OptionalDeploySetupCard extends StatelessWidget {
                 '1) Run `$setupCommand` on your laptop.\n'
                 '2) Copy the output token/JSON.\n'
                 '3) In GitHub repo secrets, add `$secretName`.\n'
-                '4) Use Prompt -> Deploy functions.',
+                '4) Use Agent -> Deploy functions.',
           ),
           const SizedBox(height: 10),
           Align(

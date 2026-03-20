@@ -1,7 +1,7 @@
 # Beta Release Plan
 
 ## Scope
-Small TestFlight-style beta focused on authentication, repository operations, AI diff flow, checks, and token accounting.
+Small TestFlight-style beta focused on authentication, repository operations, AI agent flow, checks, and token accounting.
 
 ## Target Group
 - 5-10 internal engineering testers
@@ -17,7 +17,7 @@ Small TestFlight-style beta focused on authentication, repository operations, AI
 - Apple / Google / GitHub sign-in
 - Repo sync and file browsing
 - Manual edit and save
-- AI suggestion approve/reject path
+- AI agent run and diff approval path
 - Branch / commit / PR or MR creation
 - CI workflow dispatch and log viewing
 - Account deletion
@@ -44,4 +44,4 @@ Small TestFlight-style beta focused on authentication, repository operations, AI
 - Route blocker or high-severity auth, token, crash, or PR/MR issues to the launch owner within the same day
 
 ## TestFlight Notes Draft
-- "CodeCatalystAI beta adds mobile repository review, AI diff generation, GitHub/GitHub actions, and CI checks. Please focus on sign-in, repo connection, editing, AI diff approval, and workflow reliability."
+- "CodeCatalystAI beta adds mobile repository review, AI agent-driven diff generation, GitHub/GitHub actions, and CI checks. Please focus on sign-in, repo connection, editing, AI diff approval, and workflow reliability."

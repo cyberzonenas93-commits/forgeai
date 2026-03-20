@@ -6,12 +6,56 @@ export interface RepoExecutionContextFile {
 }
 
 export interface RepoExecutionContextPayload {
+  repoOverview?: string;
+  architectureOverview?: string;
+  architectureZoneOverview?: string;
+  moduleOverview?: string;
+  moduleIndex?: string;
+  focusedModuleDetails?: string;
+  runMemorySummary?: string;
+  repoSizeClass?: string;
+  contextStrategy?: string;
   repoStructure: string;
+  globalContextFiles?: RepoExecutionContextFile[];
   relevantFiles: RepoExecutionContextFile[];
   dependencyFiles: RepoExecutionContextFile[];
   currentFilePath?: string | null;
   userPrompt: string;
   deepMode: boolean;
+}
+
+export interface RepoExecutionPlannerCandidate {
+  path: string;
+  summary: string;
+  reasons: string[];
+}
+
+export interface RepoExecutionPlannerPayload {
+  repoOverview: string;
+  architectureOverview?: string;
+  architectureZoneOverview?: string;
+  moduleOverview?: string;
+  moduleIndex?: string;
+  focusedModuleDetails?: string;
+  runMemorySummary?: string;
+  repoSizeClass?: string;
+  contextStrategy?: string;
+  repoStructure: string;
+  candidateFiles: RepoExecutionPlannerCandidate[];
+  currentFilePath?: string | null;
+  userPrompt: string;
+  deepMode: boolean;
+}
+
+export interface ParsedRepoExecutionPlan {
+  summary: string;
+  primaryPaths: string[];
+  readOnlyPaths: string[];
+  additionalPathHints: string[];
+  focusModules: string[];
+  architectureNotes: string[];
+  unresolvedQuestions: string[];
+  needsBroadContext: boolean;
 }
 
 export interface ParsedRepoExecutionEdit {
@@ -48,10 +92,35 @@ export function buildRepoExecutionSystemPrompt() {
     '- Output only files you want changed.',
     '- Keep paths relative to repo root.',
     '- Preserve unchanged files by omitting them.',
-    '- Prefer the smallest safe set of files.',
+    '- Use the layered repository context, module summaries, and run memory to stay architecturally consistent across the whole repo.',
+    '- Treat the module index and focused-module details as real repo structure, not as optional fluff.',
+    '- Prefer the smallest safe set of files, but do not artificially avoid ripple edits when architecture requires them.',
     '- Do not invent dependencies that are not already present unless the request clearly needs a new file.',
     '- Return no markdown fences.',
     '- Return no prose before, between, or after file blocks.',
+  ].join('\n');
+}
+
+export function buildRepoExecutionPlanningSystemPrompt() {
+  return [
+    'You are CodeCatalystAI planning repository context for an autonomous coding run.',
+    'You are not writing code yet.',
+    'Return only valid JSON with these keys:',
+    '- summary: short string',
+    '- primaryPaths: array of repo-relative file paths the model should be allowed to edit',
+    '- readOnlyPaths: array of repo-relative file paths that should be loaded as read-only supporting context',
+    '- additionalPathHints: array of short search terms or path fragments that would help expand repo context',
+    '- focusModules: array of module IDs from the repo knowledge map',
+    '- architectureNotes: array of short architecture conclusions to remember',
+    '- unresolvedQuestions: array of short unknowns that still matter',
+    '- needsBroadContext: boolean',
+    'Rules:',
+    '- Prefer the smallest safe edit set, but if the request clearly spans architecture, include multiple files.',
+    '- Use readOnlyPaths for config, entrypoints, and neighboring modules that explain architecture.',
+    '- Use architecture zones, module relationships, and focused-module details to reason beyond the first obvious files.',
+    '- If the repo is small enough to reason over broadly, set needsBroadContext to true.',
+    '- Do not include paths that are not in the repository tree.',
+    '- Return no markdown fences and no prose outside the JSON object.',
   ].join('\n');
 }
 
@@ -79,18 +148,95 @@ export function buildRepoExecutionUserPrompt(context: RepoExecutionContextPayloa
     `USER REQUEST:\n${context.userPrompt}`,
     '',
     `MODE: ${context.deepMode ? 'deep' : 'normal'}`,
+    context.repoSizeClass ? `REPO SIZE CLASS: ${context.repoSizeClass}` : 'REPO SIZE CLASS: (unknown)',
+    context.contextStrategy ? `CONTEXT STRATEGY: ${context.contextStrategy}` : 'CONTEXT STRATEGY: (unknown)',
     context.currentFilePath ? `CURRENT FILE: ${context.currentFilePath}` : 'CURRENT FILE: (none)',
+    '',
+    'REPOSITORY OVERVIEW:',
+    context.repoOverview || '(no repo overview available)',
+    '',
+    'ARCHITECTURE OVERVIEW:',
+    context.architectureOverview || '(none)',
+    '',
+    'ARCHITECTURE ZONES:',
+    context.architectureZoneOverview || '(none)',
+    '',
+    'MODULE OVERVIEW:',
+    context.moduleOverview || '(none)',
+    '',
+    'MODULE INDEX:',
+    context.moduleIndex || '(none)',
+    '',
+    'FOCUSED MODULE DETAILS:',
+    context.focusedModuleDetails || '(none)',
+    '',
+    'RUN MEMORY:',
+    context.runMemorySummary || '(none)',
     '',
     'REPOSITORY STRUCTURE:',
     context.repoStructure || '(no files indexed)',
+    '',
+    formatContextFiles('GLOBAL CONTEXT FILES', context.globalContextFiles ?? []),
     '',
     formatContextFiles('RELEVANT FILES', context.relevantFiles),
     '',
     formatContextFiles('DEPENDENCY FILES', context.dependencyFiles),
     '',
-    'Only modify files listed in RELEVANT FILES. Treat DEPENDENCY FILES as read-only context.',
+    'Only modify files listed in RELEVANT FILES. Treat GLOBAL CONTEXT FILES and DEPENDENCY FILES as read-only context.',
     '',
     'Produce the final changed files now.',
+  ].join('\n');
+}
+
+function formatPlanningCandidates(files: RepoExecutionPlannerCandidate[]) {
+  if (files.length === 0) {
+    return '(none)';
+  }
+  return files
+    .map(file => {
+      const reasons = file.reasons.length > 0 ? file.reasons.join(', ') : 'selected';
+      return `PATH: ${file.path}\nSUMMARY: ${file.summary}\nREASONS: ${reasons}`;
+    })
+    .join('\n\n');
+}
+
+export function buildRepoExecutionPlanningUserPrompt(context: RepoExecutionPlannerPayload) {
+  return [
+    `USER REQUEST:\n${context.userPrompt}`,
+    '',
+    `MODE: ${context.deepMode ? 'deep' : 'normal'}`,
+    context.repoSizeClass ? `REPO SIZE CLASS: ${context.repoSizeClass}` : 'REPO SIZE CLASS: (unknown)',
+    context.contextStrategy ? `CONTEXT STRATEGY: ${context.contextStrategy}` : 'CONTEXT STRATEGY: (unknown)',
+    context.currentFilePath ? `CURRENT FILE: ${context.currentFilePath}` : 'CURRENT FILE: (none)',
+    '',
+    'REPOSITORY OVERVIEW:',
+    context.repoOverview || '(no repo overview available)',
+    '',
+    'ARCHITECTURE OVERVIEW:',
+    context.architectureOverview || '(none)',
+    '',
+    'ARCHITECTURE ZONES:',
+    context.architectureZoneOverview || '(none)',
+    '',
+    'MODULE OVERVIEW:',
+    context.moduleOverview || '(none)',
+    '',
+    'MODULE INDEX:',
+    context.moduleIndex || '(none)',
+    '',
+    'FOCUSED MODULE DETAILS:',
+    context.focusedModuleDetails || '(none)',
+    '',
+    'RUN MEMORY:',
+    context.runMemorySummary || '(none)',
+    '',
+    'REPOSITORY STRUCTURE:',
+    context.repoStructure || '(no files indexed)',
+    '',
+    'TOP CANDIDATE FILES:',
+    formatPlanningCandidates(context.candidateFiles),
+    '',
+    'Choose the best edit scope now.',
   ].join('\n');
 }
 
@@ -107,6 +253,51 @@ export function buildRepoExecutionRepairPrompt(
     'INVALID RESPONSE TO REPAIR:',
     truncate(invalidOutput, 24_000),
   ].join('\n');
+}
+
+function asStringArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] as string[];
+  }
+  return value
+    .map(item => (typeof item === 'string' ? item.trim() : ''))
+    .filter(item => item.length > 0);
+}
+
+export function parseRepoExecutionPlanResponse(responseText: string): ParsedRepoExecutionPlan {
+  try {
+    const parsed = JSON.parse(responseText) as {
+      summary?: unknown;
+      primaryPaths?: unknown;
+      readOnlyPaths?: unknown;
+      additionalPathHints?: unknown;
+      focusModules?: unknown;
+      architectureNotes?: unknown;
+      unresolvedQuestions?: unknown;
+      needsBroadContext?: unknown;
+    };
+    return {
+      summary: typeof parsed.summary === 'string' ? parsed.summary.trim() : '',
+      primaryPaths: asStringArray(parsed.primaryPaths),
+      readOnlyPaths: asStringArray(parsed.readOnlyPaths),
+      additionalPathHints: asStringArray(parsed.additionalPathHints),
+      focusModules: asStringArray(parsed.focusModules),
+      architectureNotes: asStringArray(parsed.architectureNotes),
+      unresolvedQuestions: asStringArray(parsed.unresolvedQuestions),
+      needsBroadContext: parsed.needsBroadContext === true,
+    };
+  } catch {
+    return {
+      summary: '',
+      primaryPaths: [],
+      readOnlyPaths: [],
+      additionalPathHints: [],
+      focusModules: [],
+      architectureNotes: [],
+      unresolvedQuestions: [],
+      needsBroadContext: false,
+    };
+  }
 }
 
 export function parseRepoExecutionResponse(responseText: string) {

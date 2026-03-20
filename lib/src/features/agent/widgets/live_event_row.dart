@@ -19,6 +19,7 @@ class LiveEventRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final accent = _eventColor(event.type);
     final metadata = buildEventMetadata(event);
+    final insight = buildEventInsight(event);
     return AnimatedContainer(
       duration: const Duration(milliseconds: 240),
       curve: Curves.easeOutCubic,
@@ -99,6 +100,26 @@ class LiveEventRow extends StatelessWidget {
                             : ForgePalette.textSecondary,
                       ),
                 ),
+                if ((insight ?? '').trim().isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: accent.withValues(alpha: 0.18),
+                      ),
+                    ),
+                    child: Text(
+                      insight!,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: ForgePalette.textSecondary,
+                          ),
+                    ),
+                  ),
+                ],
                 if (metadata.isNotEmpty) ...[
                   const SizedBox(height: 10),
                   Wrap(
@@ -128,12 +149,17 @@ Color _eventColor(String type) {
   switch (type) {
     case 'task_failed':
     case 'validation_failed':
+    case 'tool_failed':
       return ForgePalette.error;
     case 'awaiting_approval':
       return ForgePalette.warning;
     case 'task_completed':
     case 'remote_action_completed':
+    case 'validation_passed':
+    case 'tool_passed':
       return ForgePalette.success;
+    case 'tool_skipped':
+      return ForgePalette.textMuted;
     case 'retrying':
       return ForgePalette.emberAccent;
     case 'task_cancel_requested':

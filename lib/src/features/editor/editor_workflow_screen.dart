@@ -613,9 +613,7 @@ class _EditorWorkflowScreenState extends State<EditorWorkflowScreen> {
                                 ForgeSecondaryButton(
                                   label: 'Diff',
                                   icon: Icons.compare_arrows_rounded,
-                                  onPressed:
-                                      state.currentChangeRequest == null &&
-                                          state.currentExecutionSession == null
+                                  onPressed: state.currentExecutionSession == null
                                       ? null
                                       : () => _open(
                                           context,
@@ -669,10 +667,8 @@ class _EditorWorkflowScreenState extends State<EditorWorkflowScreen> {
                                       child: ForgeAiIndicator(
                                         label: document == null
                                             ? 'Select a file to begin'
-                                            : ((state.currentExecutionSession ==
-                                                        null &&
-                                                    state.currentChangeRequest ==
-                                                        null)
+                                            : (state.currentExecutionSession ==
+                                                    null
                                                 ? 'Describe the repo change you want, then run the agent'
                                                 : 'Diff ready for review'),
                                       ),

@@ -150,7 +150,7 @@ class _RepositoriesScreenState extends State<RepositoriesScreen> {
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      'Connect GitHub to browse files, review changes, and use Prompt on your codebase.',
+                                      'Connect GitHub to browse files, review changes, and run the agent on your codebase.',
                                       style: Theme.of(
                                         context,
                                       ).textTheme.bodySmall,
@@ -191,7 +191,7 @@ class _RepositoriesScreenState extends State<RepositoriesScreen> {
                     // Repository list
                     ForgeSectionHeader(
                       title: 'Your repositories',
-                      subtitle: 'Tap one to browse files and use in Prompt.',
+                      subtitle: 'Tap one to browse files and use in Agent.',
                     ),
                     const SizedBox(height: 12),
                     ...repositories.map((repo) {

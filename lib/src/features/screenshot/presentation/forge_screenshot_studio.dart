@@ -264,7 +264,7 @@ Future<void> refreshSelectedRepository() async {
       ],
       tokenLogs: const [
         ForgeTokenLog(
-          action: 'AI suggestion',
+          action: 'Agent run',
           cost: '80',
           repo: 'forgeai/mobile-app',
           timestamp: '9m ago',
@@ -296,42 +296,70 @@ Future<void> refreshSelectedRepository() async {
         updatedAt: null,
         sha: 'preview-sha',
       ),
-      currentChangeRequest: const ForgeChangeRequest(
-        id: 'preview-change-request',
+      currentExecutionSession: const ForgeRepoExecutionSession(
+        id: 'preview-execution-session',
         repoId: 'repo_mobile_app',
-        filePath:
-            'lib/src/features/workspace/data/forge_workspace_repository.dart',
-        provider: ForgeAiProvider.openai,
         prompt: 'Add visible syncing state before repository refresh.',
-        status: 'draft',
+        mode: 'normal',
         summary:
             'Stages a small UI-safe loading update around repository sync.',
-        beforeContent: beforeContent,
-        afterContent: afterContent,
-        diffLines: [
-          ForgeDiffLine(
-            prefix: '-',
-            line: '  await _repository!.syncRepository(selectedRepository.id);',
-            isAddition: false,
-          ),
-          ForgeDiffLine(
-            prefix: '+',
-            line:
-                '  value = value.copyWith(isSyncing: true, clearError: true);',
-            isAddition: true,
-          ),
-          ForgeDiffLine(
-            prefix: '+',
-            line: '  await _repository!.syncRepository(selectedRepository.id);',
-            isAddition: true,
-          ),
-          ForgeDiffLine(
-            prefix: '+',
-            line: '  value = value.copyWith(isSyncing: false);',
-            isAddition: true,
+        estimatedTokens: 280,
+        selectedFiles: [
+          'lib/src/features/workspace/data/forge_workspace_repository.dart',
+        ],
+        dependencyFiles: [
+          'lib/src/features/workspace/application/forge_workspace_controller.dart',
+        ],
+        inspectedFiles: [
+          'lib/src/features/workspace/data/forge_workspace_repository.dart',
+          'lib/src/features/workspace/application/forge_workspace_controller.dart',
+          'lib/src/features/editor/editor_workflow_screen.dart',
+        ],
+        globalContextFiles: ['pubspec.yaml', 'README.md'],
+        steps: [
+          'Indexed repository files',
+          'Expanded repo context',
+          'Selected editable files',
+          'Validated structured output',
+        ],
+        actionType: 'refactor_code',
+        planningSummary:
+            'Inspected the workspace controller and repository data layer before preparing a mobile-safe edit.',
+        edits: [
+          ForgeRepoExecutionFileChange(
+            path: 'lib/src/features/workspace/data/forge_workspace_repository.dart',
+            action: 'modify',
+            summary:
+                'Adds visible sync-state handling around repository refresh.',
+            beforeContent: beforeContent,
+            afterContent: afterContent,
+            diffLines: [
+              ForgeDiffLine(
+                prefix: '-',
+                line:
+                    '  await _repository!.syncRepository(selectedRepository.id);',
+                isAddition: false,
+              ),
+              ForgeDiffLine(
+                prefix: '+',
+                line:
+                    '  value = value.copyWith(isSyncing: true, clearError: true);',
+                isAddition: true,
+              ),
+              ForgeDiffLine(
+                prefix: '+',
+                line:
+                    '  await _repository!.syncRepository(selectedRepository.id);',
+                isAddition: true,
+              ),
+              ForgeDiffLine(
+                prefix: '+',
+                line: '  value = value.copyWith(isSyncing: false);',
+                isAddition: true,
+              ),
+            ],
           ),
         ],
-        estimatedTokens: 80,
       ),
     );
   }

@@ -397,13 +397,13 @@ class _ChatEntryCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                TaskStatusChip(status: task.status),
+                TaskStatusChip(task: task),
               ],
             ),
             const SizedBox(height: 8),
             if (task.isActive && ownerId != null)
               StreamLogWidget(ownerId: ownerId!, taskId: task.id),
-            if (task.isTerminal)
+            if (task.isFinal)
               _TerminalResultCard(
                 task: task,
                 onViewDiff: task.sessionId != null ? onSwitchToEditorTab : null,
@@ -559,7 +559,7 @@ class _ChatInput extends StatelessWidget {
                       : 'Select a repository first',
                   hintStyle: TextStyle(color: ForgePalette.textMuted),
                   filled: true,
-                  fillColor: ForgePalette.surfaceVariant,
+                  fillColor: ForgePalette.backgroundSecondary,
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 14,
                     vertical: 10,

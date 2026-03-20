@@ -109,8 +109,11 @@ class _SplashStage extends StatelessWidget {
                     opacity: intro,
                     child: Transform.translate(
                       offset: Offset(0, (1 - intro) * 24),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 20,
+                        ),
                         child: ConstrainedBox(
                           constraints: const BoxConstraints(maxWidth: 460),
                           child: Column(
@@ -133,7 +136,7 @@ class _SplashStage extends StatelessWidget {
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 28),
+                              const SizedBox(height: 24),
                               SizedBox(
                                 width: 272,
                                 height: 272,
@@ -213,7 +216,7 @@ class _SplashStage extends StatelessWidget {
                                   ],
                                 ),
                               ),
-                              const SizedBox(height: 26),
+                              const SizedBox(height: 22),
                               Text(
                                 kAppDisplayName,
                                 textAlign: TextAlign.center,
@@ -223,7 +226,7 @@ class _SplashStage extends StatelessWidget {
                                       letterSpacing: -0.8,
                                     ),
                               ),
-                              const SizedBox(height: 10),
+                              const SizedBox(height: 8),
                               Text(
                                 'Review, edit, and ship code from anywhere.',
                                 textAlign: TextAlign.center,
@@ -232,7 +235,7 @@ class _SplashStage extends StatelessWidget {
                                       color: ForgePalette.textSecondary,
                                     ),
                               ),
-                              const SizedBox(height: 18),
+                              const SizedBox(height: 16),
                               const Wrap(
                                 alignment: WrapAlignment.center,
                                 spacing: 10,
@@ -243,8 +246,8 @@ class _SplashStage extends StatelessWidget {
                                     icon: Icons.compare_arrows_rounded,
                                   ),
                                   ForgePill(
-                                    label: 'AI suggestions',
-                                    icon: Icons.auto_awesome_rounded,
+                                    label: 'Live agent runs',
+                                    icon: Icons.auto_awesome_motion_rounded,
                                   ),
                                   ForgePill(
                                     label: 'Safe approvals',

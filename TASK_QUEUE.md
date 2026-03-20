@@ -31,7 +31,7 @@ The queue is workspace-scoped. In this app, a workspace maps to a repository id,
 ## Failure Recovery
 - stale running locks are recoverable by the queue promoter
 - final task states always release the lock
-- invalid model output retries once with a repair prompt before the task fails
+- malformed structured execution output retries across the repair and provider fallback path until retry guardrails are exhausted
 
 ## Persistence
 - queue state lives in Firestore

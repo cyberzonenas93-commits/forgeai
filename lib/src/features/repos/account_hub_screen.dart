@@ -21,14 +21,14 @@ class AccountHubScreen extends StatefulWidget {
     this.account,
     this.authController,
     this.onSwitchToRepoTab,
-    this.onSwitchToAskTab,
+    this.onSwitchToAgentTab,
   });
 
   final ForgeWorkspaceController controller;
   final AuthAccount? account;
   final AuthController? authController;
   final VoidCallback? onSwitchToRepoTab;
-  final VoidCallback? onSwitchToAskTab;
+  final VoidCallback? onSwitchToAgentTab;
 
   @override
   State<AccountHubScreen> createState() => _AccountHubScreenState();
@@ -103,7 +103,7 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Connected ${repo.fullName}. Use Ask or Repo to work with it.',
+            'Connected ${repo.fullName}. Use Agent or Repo to work with it.',
           ),
         ),
       );
@@ -287,7 +287,7 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
                       ForgeSectionHeader(
                         title: 'Connected in $kAppDisplayName',
                         subtitle:
-                            'These repos are synced. Select one to use in Ask or the Editor.',
+                            'These repos are synced. Select one to use in Agent or the editor.',
                         trailing: ForgePill(
                           label: '${connected.length}',
                           icon: Icons.folder_rounded,
@@ -501,7 +501,7 @@ class _AccountHubScreenState extends State<AccountHubScreen> {
                                       widget.controller.selectRepository(
                                         existing,
                                       );
-                                      widget.onSwitchToAskTab?.call();
+                                      widget.onSwitchToAgentTab?.call();
                                     },
                                     expanded: true,
                                   )

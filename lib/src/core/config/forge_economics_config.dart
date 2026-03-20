@@ -61,7 +61,7 @@ const Map<String, String> actionLabels = <String, String>{
   'generate_tests': 'Generate tests',
   'refactor_code': 'Refactor code',
   'deep_repo_analysis': 'Deep repo analysis',
-  'ai_suggestion': 'AI suggestion',
+  'ai_suggestion': 'Agent run',
   'ai_project_scaffold': 'New project (AI)',
   'create_branch': 'Create branch',
   'commit': 'Commit',

@@ -39,12 +39,12 @@ class FilesTouchedPanel extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Files touched',
+                      'Repo activity',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'See what the agent inspected, modified, created, or queued for review.',
+                      'See what the agent inspected, widened into scope, modified, created, or queued for review.',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: ForgePalette.textSecondary,
                           ),
@@ -134,9 +134,8 @@ class _FileActivityRow extends StatelessWidget {
                   children: [
                     Text(
                       file.path,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodyMedium,
+                      softWrap: true,
                     ),
                     const SizedBox(height: 4),
                     Text(

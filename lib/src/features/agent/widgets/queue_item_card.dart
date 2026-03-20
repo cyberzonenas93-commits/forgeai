@@ -24,9 +24,35 @@ class QueueItemCard extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onRemove;
 
+  String? _planSummary() {
+    final value = task.metadata['planSummary'];
+    return value is String && value.trim().isNotEmpty ? value.trim() : null;
+  }
+
+  List<String> _plannedSteps() {
+    final value = task.metadata['plannedSteps'];
+    if (value is! List) {
+      return const <String>[];
+    }
+    return value
+        .whereType<String>()
+        .map((step) => step.trim())
+        .where((step) => step.isNotEmpty)
+        .take(2)
+        .toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     final isNext = position == 1;
+    final planSummary = _planSummary();
+    final plannedSteps = _plannedSteps();
+    final executionProvider = task.metadata['executionProvider'] is String
+        ? (task.metadata['executionProvider'] as String).trim()
+        : '';
+    final toolRegistryCount = task.metadata['toolRegistryCount'] is num
+        ? (task.metadata['toolRegistryCount'] as num).toInt()
+        : 0;
     return ForgePanel(
       onTap: onTap,
       highlight: isNext,
@@ -87,10 +113,18 @@ class QueueItemCard extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             task.prompt,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodyMedium,
+            softWrap: true,
           ),
+          if (planSummary != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              planSummary,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: ForgePalette.textSecondary,
+                  ),
+            ),
+          ],
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
@@ -106,8 +140,47 @@ class QueueItemCard extends StatelessWidget {
                 icon: Icons.schedule_rounded,
                 color: ForgePalette.textMuted,
               ),
+              ForgePill(
+                label: task.deepMode ? 'Deep mode' : 'Normal mode',
+                icon: task.deepMode
+                    ? Icons.psychology_rounded
+                    : Icons.flash_on_rounded,
+                color: ForgePalette.glowAccent,
+              ),
+              if (executionProvider.isNotEmpty)
+                ForgePill(
+                  label: executionProvider,
+                  icon: Icons.hub_rounded,
+                  color: ForgePalette.sparkAccent,
+                ),
+              if (toolRegistryCount > 0)
+                ForgePill(
+                  label: '$toolRegistryCount tools',
+                  icon: Icons.handyman_rounded,
+                  color: ForgePalette.textSecondary,
+                ),
+              if (isSelected)
+                ForgePill(
+                  label: 'Focused',
+                  icon: Icons.center_focus_strong_rounded,
+                  color: ForgePalette.success,
+                ),
             ],
           ),
+          if (plannedSteps.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ...plannedSteps.map(
+              (step) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  '• $step',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: ForgePalette.textSecondary,
+                      ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

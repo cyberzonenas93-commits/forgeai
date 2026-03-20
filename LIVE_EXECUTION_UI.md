@@ -24,7 +24,7 @@ The old prompt-and-reply view has been replaced by an Agent tab that behaves lik
   - surface approval checkpoint actions inline and in a modal sheet
 - live timeline
   - streamed task events in real time
-  - repo scan, file reads, model calls, retries, approvals, applies, validation, completion
+  - repo clone, repo scan, file reads, model calls, retries, approvals, applies, validation, completion
 - files touched
   - shows files read, modified, created, validation-failed, or ready for review
   - supports jumping into the editor
@@ -45,7 +45,7 @@ The old prompt-and-reply view has been replaced by an Agent tab that behaves lik
 - apply diff
   - opens the existing diff review flow through the editor when needed
 - commit / PR / merge / deploy
-  - shown as explicit next-step approvals after the working copy is updated
+  - shown as explicit next-step approvals after the task-local workspace is updated
 
 ## Diff Review Integration
 - task-generated execution sessions are persisted in Firestore
@@ -73,7 +73,7 @@ The UI subscribes to:
 ## Product Outcome
 The primary AI interaction is now:
 - submit prompt
-- watch the agent work
+- watch the agent clone, inspect, edit, validate, and retry
 - review the timeline
 - approve or reject at checkpoints
 - queue additional prompts while the current task continues

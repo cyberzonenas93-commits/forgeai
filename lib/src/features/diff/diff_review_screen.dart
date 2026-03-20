@@ -17,7 +17,6 @@ class DiffReviewScreen extends StatelessWidget {
       valueListenable: controller,
       builder: (context, state, _) {
         final execution = state.currentExecutionSession;
-        final change = state.currentChangeRequest;
 
         return Scaffold(
           backgroundColor: Colors.transparent,
@@ -31,48 +30,55 @@ class DiffReviewScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       ForgeSectionHeader(
-                        title: execution != null
-                            ? 'Repo execution review'
-                            : 'Diff review',
-                        subtitle: execution != null
-                            ? 'Inspect each prepared file change before it is applied to the working copy.'
-                            : 'Approve or reject every code change before it becomes a commit.',
+                        title: 'Repo execution review',
+                        subtitle:
+                            'Inspect each prepared file change before it is applied to the task-local workspace.',
                       ),
                       const SizedBox(height: 16),
-                      if (execution == null && change == null)
+                      if (execution == null)
                         Text(
                           'No AI-generated diff is waiting for review.',
                           style: Theme.of(context).textTheme.bodySmall,
                         )
                       else ...[
-                        if (execution != null) ...[
-                          Text(
-                            execution.summary,
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                          const SizedBox(height: 12),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              ForgePill(
-                                label: '${execution.edits.length} files',
-                                icon: Icons.description_rounded,
-                              ),
-                              ForgePill(
-                                label: execution.isDeepMode
-                                    ? 'Deep mode'
-                                    : 'Normal mode',
-                                icon: Icons.tune_rounded,
-                              ),
-                              ForgePill(
-                                label: '${execution.estimatedTokens} tokens',
-                                icon: Icons.token_rounded,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                        ],
+                        Text(
+                          execution.summary,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ForgePill(
+                              label: '${execution.edits.length} files',
+                              icon: Icons.description_rounded,
+                            ),
+                            ForgePill(
+                              label: execution.isDeepMode
+                                  ? 'Deep mode'
+                                  : 'Normal mode',
+                              icon: Icons.tune_rounded,
+                            ),
+                            ForgePill(
+                              label: '${execution.inspectedFiles.length} inspected',
+                              icon: Icons.travel_explore_rounded,
+                            ),
+                            ForgePill(
+                              label: '${execution.estimatedTokens} tokens',
+                              icon: Icons.token_rounded,
+                            ),
+                            ForgePill(
+                              label: execution.wholeRepoEligible
+                                  ? 'Whole-repo inline context'
+                                  : 'Expanded repo context',
+                              icon: execution.wholeRepoEligible
+                                  ? Icons.account_tree_rounded
+                                  : Icons.hub_rounded,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
                         ForgeSecondaryButton(
                           label: 'Reject',
                           icon: Icons.close_rounded,
@@ -99,58 +105,92 @@ class DiffReviewScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 if (execution != null) ...[
-                  if (execution.selectedFiles.isNotEmpty)
-                    ForgePanel(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Retrieved files',
-                            style: Theme.of(context).textTheme.titleMedium,
+                  ForgePanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Context used',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 12),
+                        if ((execution.planningSummary ?? '').trim().isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Text(
+                              execution.planningSummary!.trim(),
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: ForgePalette.textSecondary,
+                                  ),
+                            ),
                           ),
-                          const SizedBox(height: 12),
+                        if (execution.selectedFiles.isNotEmpty) ...[
+                          Text(
+                            'Editable wave',
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 10),
                           Wrap(
                             spacing: 8,
                             runSpacing: 8,
                             children: execution.selectedFiles
                                 .map(
-                                  (path) => ForgePill(
+                                (path) => ForgePill(
                                     label: path,
-                                    icon: Icons.insert_drive_file_rounded,
+                                    icon: Icons.edit_note_rounded,
                                   ),
                                 )
                                 .toList(),
                           ),
-                          if (execution.steps.isNotEmpty) ...[
-                            const SizedBox(height: 16),
-                            Text(
-                              'Execution steps',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 12),
-                            ...execution.steps.map(
-                              (step) => Padding(
-                                padding: const EdgeInsets.only(bottom: 8),
-                                child: Text(
-                                  '• $step',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
+                          const SizedBox(height: 16),
+                        ],
+                        if (execution.globalContextFiles.isNotEmpty) ...[
+                          Text(
+                            'Global repo context',
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: execution.globalContextFiles
+                                .map(
+                                  (path) => ForgePill(
+                                    label: path,
+                                    icon: Icons.account_tree_rounded,
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+                        if (execution.steps.isNotEmpty) ...[
+                          Text(
+                            'Execution steps',
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 12),
+                          ...execution.steps.map(
+                            (step) => Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Text(
+                                '• $step',
+                                style: Theme.of(context).textTheme.bodySmall,
                               ),
                             ),
-                          ],
+                          ),
                         ],
-                      ),
+                      ],
                     ),
-                  if (execution.selectedFiles.isNotEmpty)
-                    const SizedBox(height: 16),
+                  ),
+                  const SizedBox(height: 16),
                   ...execution.edits.map(
                     (edit) => Padding(
                       padding: const EdgeInsets.only(bottom: 16),
                       child: _ExecutionEditPanel(edit: edit),
                     ),
                   ),
-                ] else if (change != null) ...[
-                  _SingleChangePanel(change: change),
                 ],
               ],
             ),
@@ -161,23 +201,14 @@ class DiffReviewScreen extends StatelessWidget {
   }
 
   Future<void> _approve(BuildContext context) async {
-    final hadExecution = controller.value.currentExecutionSession != null;
     try {
-      if (hadExecution) {
-        await controller.approveCurrentExecution();
-      } else {
-        await controller.approveCurrentChange();
-      }
+      await controller.approveCurrentExecution();
       if (!context.mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            hadExecution
-                ? 'Repo changes applied to the working copy.'
-                : 'Diff approved and applied to the draft.',
-          ),
+        const SnackBar(
+          content: Text('Repo changes applied to the task-local workspace.'),
         ),
       );
       Navigator.of(context).pop();
@@ -192,23 +223,14 @@ class DiffReviewScreen extends StatelessWidget {
   }
 
   Future<void> _reject(BuildContext context) async {
-    final hadExecution = controller.value.currentExecutionSession != null;
     try {
-      if (hadExecution) {
-        await controller.rejectCurrentExecution();
-      } else {
-        await controller.rejectCurrentChange();
-      }
+      await controller.rejectCurrentExecution();
       if (!context.mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            hadExecution
-                ? 'Repo execution discarded.'
-                : 'Changes sent back for edit.',
-          ),
+        const SnackBar(
+          content: Text('Repo execution discarded.'),
         ),
       );
       Navigator.of(context).pop();
@@ -220,26 +242,6 @@ class DiffReviewScreen extends StatelessWidget {
         context,
       ).showSnackBar(SnackBar(content: Text(forgeUserFriendlyMessage(error))));
     }
-  }
-}
-
-class _SingleChangePanel extends StatelessWidget {
-  const _SingleChangePanel({required this.change});
-
-  final ForgeChangeRequest change;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        _CodeComparison(
-          beforeContent: change.beforeContent,
-          afterContent: change.afterContent,
-        ),
-        const SizedBox(height: 16),
-        _DiffLinesPanel(lines: change.diffLines),
-      ],
-    );
   }
 }
 

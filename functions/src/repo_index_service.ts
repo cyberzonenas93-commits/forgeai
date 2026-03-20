@@ -94,7 +94,10 @@ function scoreEntry(
     entry.summary.toLowerCase(),
     entry.embeddingText.toLowerCase(),
     entry.imports.join(' ').toLowerCase(),
+    entry.exports.join(' ').toLowerCase(),
     entry.symbolHints.join(' ').toLowerCase(),
+    entry.architectureHints.join(' ').toLowerCase(),
+    entry.role.toLowerCase(),
   ];
 
   for (const token of promptTokens) {
@@ -140,7 +143,12 @@ function scoreEntry(
     entry.imports.some(value => value.toLowerCase().includes(pathMeta(currentFilePath).fileName.toLowerCase()))
   ) {
     score += 8;
-    reasons.push('references_current_file');
+      reasons.push('references_current_file');
+  }
+
+  if (entry.isEntrypoint) {
+    score += 2;
+    reasons.push('entrypoint');
   }
 
   if (!entry.hasContent) {
@@ -255,7 +263,11 @@ export function buildIndexEntryStoragePayload(entry: RepoIndexEntry) {
     summary: entry.summary,
     keywords: entry.keywords,
     imports: entry.imports,
+    exports: entry.exports,
     symbolHints: entry.symbolHints,
+    role: entry.role,
+    architectureHints: entry.architectureHints,
+    isEntrypoint: entry.isEntrypoint,
     embeddingText: entry.embeddingText,
     contentPreview: entry.contentPreview,
     contentHash: entry.contentHash,

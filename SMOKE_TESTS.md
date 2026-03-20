@@ -30,8 +30,8 @@ What `smoke:backend` checks:
 2. Connect `SMOKE_TEST_GITHUB_REPO`.
 3. Open a small text or code file.
 4. Add a manual edit and save.
-5. Run AI suggestion.
-6. Approve diff.
+5. Start an AI agent task.
+6. Review and approve the validated diff.
 7. Create branch using `SMOKE_TEST_BRANCH_PREFIX`.
 8. Commit.
 9. Open PR.
@@ -42,7 +42,7 @@ What `smoke:backend` checks:
 - [ ] Repository connected
 - [ ] File opened
 - [ ] Manual save worked
-- [ ] AI diff generated
+- [ ] AI agent diff generated
 - [ ] Token reservation released or captured correctly
 - [ ] Branch created
 - [ ] Commit created

@@ -65,36 +65,6 @@ class ForgeDiffLine {
   final bool isAddition;
 }
 
-class ForgeChangeRequest {
-  const ForgeChangeRequest({
-    required this.id,
-    required this.repoId,
-    required this.filePath,
-    required this.provider,
-    required this.prompt,
-    required this.status,
-    required this.summary,
-    required this.beforeContent,
-    required this.afterContent,
-    required this.diffLines,
-    required this.estimatedTokens,
-  });
-
-  final String id;
-  final String repoId;
-  final String filePath;
-  final ForgeAiProvider provider;
-  final String prompt;
-  final String status;
-  final String summary;
-  final String beforeContent;
-  final String afterContent;
-  final List<ForgeDiffLine> diffLines;
-  final int estimatedTokens;
-
-  bool get isDraft => status == 'draft';
-}
-
 class ForgeRepoExecutionFileChange {
   const ForgeRepoExecutionFileChange({
     required this.path,
@@ -123,9 +93,32 @@ class ForgeRepoExecutionSession {
     required this.estimatedTokens,
     required this.selectedFiles,
     required this.dependencyFiles,
+    required this.inspectedFiles,
+    required this.globalContextFiles,
     required this.steps,
     required this.actionType,
     required this.edits,
+    this.repoOverview,
+    this.architectureOverview,
+    this.moduleOverview,
+    this.repoSizeClass,
+    this.contextStrategy,
+    this.executionMemorySummary,
+    this.repoCoverageNotice,
+    this.focusedModules = const [],
+    this.moduleCount,
+    this.architectureZoneCount,
+    this.explorationPassCount,
+    this.hydratedPathCount,
+    this.wholeRepoEligible = false,
+    this.planningSummary,
+    this.executionProvider,
+    this.executionModel,
+    this.executionProviderReason,
+    this.contextPlannerProvider,
+    this.contextPlannerModel,
+    this.executionPlannerProvider,
+    this.executionPlannerModel,
   });
 
   final String id;
@@ -136,9 +129,32 @@ class ForgeRepoExecutionSession {
   final int estimatedTokens;
   final List<String> selectedFiles;
   final List<String> dependencyFiles;
+  final List<String> inspectedFiles;
+  final List<String> globalContextFiles;
   final List<String> steps;
   final String actionType;
   final List<ForgeRepoExecutionFileChange> edits;
+  final String? repoOverview;
+  final String? architectureOverview;
+  final String? moduleOverview;
+  final String? repoSizeClass;
+  final String? contextStrategy;
+  final String? executionMemorySummary;
+  final String? repoCoverageNotice;
+  final List<String> focusedModules;
+  final int? moduleCount;
+  final int? architectureZoneCount;
+  final int? explorationPassCount;
+  final int? hydratedPathCount;
+  final bool wholeRepoEligible;
+  final String? planningSummary;
+  final String? executionProvider;
+  final String? executionModel;
+  final String? executionProviderReason;
+  final String? contextPlannerProvider;
+  final String? contextPlannerModel;
+  final String? executionPlannerProvider;
+  final String? executionPlannerModel;
 
   bool get isDeepMode => mode == 'deep';
   bool get hasEdits => edits.isNotEmpty;
@@ -319,20 +335,6 @@ class ForgePromptPlannedEdit {
   final String path;
   final String action;
   final String rationale;
-}
-
-class ForgeAskRepoResult {
-  const ForgeAskRepoResult({
-    required this.reply,
-    this.inspectedFiles = const <String>[],
-    this.plannedEdits = const <ForgePromptPlannedEdit>[],
-    this.appliedEdits = const <ForgePromptAppliedEdit>[],
-  });
-
-  final String reply;
-  final List<String> inspectedFiles;
-  final List<ForgePromptPlannedEdit> plannedEdits;
-  final List<ForgePromptAppliedEdit> appliedEdits;
 }
 
 class ForgeCreateAiProjectResult {

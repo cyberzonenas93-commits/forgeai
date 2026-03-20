@@ -98,7 +98,7 @@ export const ACTION_PRICING: Record<BillableActionType, PricingRule> = {
     multiplier: 1,
     dailyCap: 30,
     refundPolicy: 'charge_on_successful_generation_only',
-    note: 'Charged when a suggestion draft is successfully generated; routes to priority-tier models.',
+    note: 'Charged when a durable agent run successfully produces a reviewable diff; routes to priority-tier models.',
   },
   ai_project_scaffold: {
     minTokens: 40,
@@ -147,7 +147,7 @@ export const ACTION_PRICING: Record<BillableActionType, PricingRule> = {
     multiplier: 1,
     dailyCap: 60,
     refundPolicy: 'refund_on_provider_failure',
-    note: 'Prompt tab chat with repository context; charged per successful reply.',
+    note: 'Agent workspace request with repository context; charged per successful run kickoff.',
   },
 };
 

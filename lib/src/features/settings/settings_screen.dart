@@ -263,7 +263,7 @@ class SettingsScreen extends StatelessWidget {
                   _NotificationToggle(
                     title: 'AI ready',
                     subtitle:
-                        'Prompt completions and change requests ready to review.',
+                        'Agent completions, approvals, and repo diffs ready to review.',
                     value: preferences.ai,
                     enabled: preferences.enabled,
                     onChanged: workspaceController == null
@@ -418,7 +418,7 @@ class SettingsScreen extends StatelessWidget {
                   Text('Legal', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 10),
                   Text(
-                    'AI suggestions are provided by third-party services. Your prompts and code are sent to these services to generate results. Output is for assistance only; you review and approve all changes before they are applied.',
+                    'Agent runs are powered by third-party AI services. Your prompts and repository context are sent to those services so the runtime can inspect code, generate edits, validate them, and prepare approval checkpoints. You still review and approve any shared writes or Git actions before they are applied.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 14),

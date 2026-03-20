@@ -12,6 +12,7 @@ class ActiveStepHeader extends StatelessWidget {
     required this.task,
     required this.repoLabel,
     required this.queueCount,
+    this.queuePosition,
     required this.onOpenQueue,
     required this.onOpenDetails,
   });
@@ -19,18 +20,73 @@ class ActiveStepHeader extends StatelessWidget {
   final ForgeAgentTask task;
   final String repoLabel;
   final int queueCount;
+  final int? queuePosition;
   final VoidCallback onOpenQueue;
   final VoidCallback onOpenDetails;
 
   @override
   Widget build(BuildContext context) {
     final elapsed = agentElapsed(task);
+    final isQueued = task.isQueued;
+    final maxRetries = task.metadata['maxRetries'] is num
+        ? (task.metadata['maxRetries'] as num).toInt()
+        : null;
+    final validationAttemptCount =
+        task.metadata['validationAttemptCount'] is num
+            ? (task.metadata['validationAttemptCount'] as num).toInt()
+            : 0;
+    final hardLimitReached = task.metadata['hardLimitReached'] == true;
+    final executionProvider = task.metadata['executionProvider'] is String
+        ? (task.metadata['executionProvider'] as String).trim()
+        : '';
+    final toolRegistryCount = task.metadata['toolRegistryCount'] is num
+        ? (task.metadata['toolRegistryCount'] as num).toInt()
+        : 0;
+    final preApplyValidationPassed =
+        task.metadata['preApplyValidationPassed'] == true;
+    final failureCategory = formatFailureCategoryLabel(
+      task.metadata['latestFailureCategory'] as String?,
+    );
+    final repairTargetCount = countMetadataList(
+      task.metadata,
+      'repairTargetPaths',
+    );
+    final workspaceSource = formatWorkspaceSourceLabel(
+      task.metadata['workspaceSourceOfTruth'] as String?,
+    );
     final latestLine = task.latestEventMessage?.trim().isNotEmpty == true
         ? task.latestEventMessage!.trim()
         : task.executionSummary?.trim().isNotEmpty == true
             ? task.executionSummary!.trim()
             : task.currentStep;
     final accent = agentStatusColor(task);
+    final runLabel = task.needsApproval
+        ? 'Approval Block'
+        : isQueued
+            ? 'Queued Run'
+            : task.status == ForgeAgentTaskStatus.completed
+                ? 'Completed Run'
+                : task.status == ForgeAgentTaskStatus.failed
+                    ? 'Failed Run'
+                    : 'Active Run';
+    final stateTitle = task.needsApproval
+        ? 'Waiting on your decision'
+        : isQueued
+            ? 'Waiting in queue'
+            : task.status == ForgeAgentTaskStatus.completed
+                ? 'Completed work'
+                : task.status == ForgeAgentTaskStatus.failed
+                    ? 'Failure summary'
+                    : 'Current operation';
+    final runSummary = ((task.metadata['planSummary'] is String
+                ? task.metadata['planSummary'] as String
+                : null) ??
+            task.executionSummary ??
+            task.latestEventMessage ??
+            (isQueued
+                ? 'This run is lined up behind the active workspace lock and will start automatically.'
+                : 'The agent is actively working through the requested repository changes.'))
+        .trim();
     return ForgePanel(
       highlight: task.isActive,
       padding: const EdgeInsets.all(22),
@@ -70,7 +126,7 @@ class ActiveStepHeader extends StatelessWidget {
                               ),
                               const SizedBox(width: 8),
                               Text(
-                                task.needsApproval ? 'Approval Block' : 'Active Run',
+                                runLabel,
                                 style: Theme.of(context)
                                     .textTheme
                                     .labelMedium
@@ -89,20 +145,61 @@ class ActiveStepHeader extends StatelessWidget {
                             icon: Icons.format_list_numbered_rounded,
                             color: ForgePalette.primaryAccent,
                           ),
+                        if (isQueued && queuePosition != null)
+                          ForgePill(
+                            label: queuePosition == 1
+                                ? 'Next in line'
+                                : 'Queue #$queuePosition',
+                            icon: Icons.playlist_play_rounded,
+                            color: ForgePalette.warning,
+                          ),
+                        if (executionProvider.isNotEmpty)
+                          ForgePill(
+                            label: executionProvider,
+                            icon: Icons.hub_rounded,
+                            color: ForgePalette.sparkAccent,
+                          ),
+                        if (toolRegistryCount > 0)
+                          ForgePill(
+                            label: '$toolRegistryCount tools',
+                            icon: Icons.handyman_rounded,
+                            color: ForgePalette.textSecondary,
+                          ),
+                        if (preApplyValidationPassed)
+                          const ForgePill(
+                            label: 'Validated before apply',
+                            icon: Icons.verified_rounded,
+                            color: ForgePalette.success,
+                          ),
+                        if (failureCategory.isNotEmpty)
+                          ForgePill(
+                            label: failureCategory,
+                            icon: Icons.bug_report_rounded,
+                            color: ForgePalette.error,
+                          ),
+                        if (repairTargetCount != null && repairTargetCount > 0)
+                          ForgePill(
+                            label:
+                                '$repairTargetCount targeted file${repairTargetCount == 1 ? '' : 's'}',
+                            icon: Icons.my_location_rounded,
+                            color: ForgePalette.warning,
+                          ),
+                        if (workspaceSource.isNotEmpty)
+                          ForgePill(
+                            label: workspaceSource,
+                            icon: Icons.folder_open_rounded,
+                            color: ForgePalette.textSecondary,
+                          ),
                       ],
                     ),
                     const SizedBox(height: 14),
                     Text(
-                      taskHeadline(task),
+                      task.prompt.trim(),
                       style: Theme.of(context).textTheme.headlineSmall,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      task.prompt,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                      runSummary,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: ForgePalette.textMuted,
                           ),
@@ -138,7 +235,7 @@ class ActiveStepHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  task.needsApproval ? 'Waiting on your decision' : 'Current operation',
+                  stateTitle,
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color: accent,
                         fontWeight: FontWeight.w700,
@@ -191,12 +288,39 @@ class ActiveStepHeader extends StatelessWidget {
                 icon: Icons.token_rounded,
                 color: ForgePalette.warning,
               ),
+              if (task.inspectedFiles.isNotEmpty)
+                ForgePill(
+                  label: '${task.inspectedFiles.length} inspected',
+                  icon: Icons.travel_explore_rounded,
+                  color: ForgePalette.sparkAccent,
+                ),
               if (task.retryCount > 0)
                 ForgePill(
-                  label: '${task.retryCount} retries',
+                  label: maxRetries != null
+                      ? '${task.retryCount}/$maxRetries repair passes'
+                      : '${task.retryCount} retries',
                   icon: Icons.refresh_rounded,
                   color: ForgePalette.emberAccent,
-              ),
+                ),
+              if (validationAttemptCount > 0)
+                ForgePill(
+                  label:
+                      '$validationAttemptCount validation pass${validationAttemptCount == 1 ? '' : 'es'}',
+                  icon: Icons.rule_folder_rounded,
+                  color: ForgePalette.warning,
+                ),
+              if (preApplyValidationPassed)
+                const ForgePill(
+                  label: 'Sandbox passed',
+                  icon: Icons.shield_rounded,
+                  color: ForgePalette.success,
+                ),
+              if (hardLimitReached)
+                const ForgePill(
+                  label: 'Hard limit hit',
+                  icon: Icons.gpp_maybe_rounded,
+                  color: ForgePalette.error,
+                ),
               ForgePill(
                 label: queueCount == 0 ? 'Queue clear' : '$queueCount queued',
                 icon: Icons.format_list_numbered_rounded,
@@ -206,7 +330,7 @@ class ActiveStepHeader extends StatelessWidget {
               ),
             ],
           ),
-          if (task.isRunning || task.needsApproval) ...[
+          if (task.isRunning || task.needsApproval || isQueued) ...[
             const SizedBox(height: 18),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -220,7 +344,9 @@ class ActiveStepHeader extends StatelessWidget {
                   Icon(
                     task.needsApproval
                         ? Icons.pending_actions_rounded
-                        : Icons.bolt_rounded,
+                        : isQueued
+                            ? Icons.schedule_rounded
+                            : Icons.bolt_rounded,
                     size: 18,
                     color: accent,
                   ),
@@ -229,7 +355,9 @@ class ActiveStepHeader extends StatelessWidget {
                     child: Text(
                       task.needsApproval
                           ? 'Run is paused at a checkpoint. The workspace stays locked until you approve or revise.'
-                          : 'Run is live. The execution log below updates as the agent inspects, edits, and validates.',
+                          : isQueued
+                              ? 'This run is already planned and waiting for the current workspace lock to clear.'
+                              : 'Run is live. The execution log below updates as the agent inspects, edits, and validates.',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: ForgePalette.textSecondary,
                           ),

@@ -95,7 +95,7 @@ class DashboardScreen extends StatelessWidget {
                   ),
                   onOpenPrompt: _guardedAction(
                     context,
-                    featureName: 'Prompt',
+                    featureName: 'Agent',
                     action: onOpenPrompt,
                     allowGuest: true,
                   ),
@@ -146,7 +146,7 @@ class DashboardScreen extends StatelessWidget {
                       ),
                       onOpenPrompt: _guardedAction(
                         context,
-                        featureName: 'Prompt',
+                        featureName: 'Agent',
                         action: onOpenPrompt,
                         allowGuest: true,
                       ),
@@ -310,10 +310,10 @@ class _DashboardHero extends StatelessWidget {
                   ForgePrimaryButton(
                     label: repositories.isEmpty
                         ? 'Connect repository'
-                        : 'Open Prompt',
+                        : 'Open Agent',
                     icon: repositories.isEmpty
                         ? Icons.link_rounded
-                        : Icons.auto_awesome_rounded,
+                        : Icons.auto_awesome_motion_rounded,
                     onPressed: repositories.isEmpty
                         ? onOpenRepository
                         : onOpenPrompt,
@@ -496,9 +496,9 @@ class _HeroPreviewCard extends StatelessWidget {
                 ),
                 ForgePill(
                   label: state.promptThreads.isEmpty
-                      ? 'Prompt inbox ready'
-                      : '${state.promptThreads.length} active threads',
-                  icon: Icons.chat_bubble_outline_rounded,
+                      ? 'Agent queue ready'
+                      : '${state.promptThreads.length} run sessions',
+                  icon: Icons.auto_awesome_motion_rounded,
                 ),
                 ForgePill(
                   label: state.currentDocument == null
@@ -594,10 +594,10 @@ class _WorkspacePulseStrip extends StatelessWidget {
             detail: currentDocument?.language ?? 'Open a file to start editing',
           ),
           _PulseTile(
-            icon: Icons.chat_bubble_outline_rounded,
+            icon: Icons.auto_awesome_motion_rounded,
             accent: ForgePalette.sparkAccent,
-            label: 'Prompt activity',
-            value: '$threadCount threads',
+            label: 'Agent activity',
+            value: '$threadCount sessions',
             detail: totalChecks == 0
                 ? 'Checks will appear after the first workflow run'
                 : '$checksPassing/$totalChecks checks healthy',
@@ -982,9 +982,9 @@ class _CommandDeck extends StatelessWidget {
   Widget build(BuildContext context) {
     final actions = [
       _ActionCardData(
-        title: 'Prompt AI',
+        title: 'Agent workspace',
         detail:
-            'Ask for workflow installs, code changes, and deployment steps.',
+            'Queue repo-aware runs, review diffs, and continue into PR or deploy steps.',
         icon: Icons.auto_awesome_rounded,
         accent: ForgePalette.primaryAccent,
         onTap: onOpenPrompt,
@@ -1000,7 +1000,7 @@ class _CommandDeck extends StatelessWidget {
         title: 'Code editor',
         detail: isGuest
             ? 'Sign in to unlock editing and diff review.'
-            : 'Open the editor and move from prompt to saved changes.',
+            : 'Open the editor and move from an agent run to saved changes.',
         icon: Icons.code_rounded,
         accent: ForgePalette.success,
         onTap: onOpenCodeEditor,

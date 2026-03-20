@@ -101,7 +101,7 @@ void main() {
             account: harness.account,
             authController: harness.signedInAuthController,
             onSwitchToRepoTab: () {},
-            onSwitchToAskTab: () {},
+            onSwitchToAgentTab: () {},
           ),
         ),
         MapEntry<String, Widget>(
@@ -430,33 +430,59 @@ ForgeWorkspaceState _sampleWorkspaceState() {
     updatedAt: null,
   );
 
-  final changeRequest = ForgeChangeRequest(
-    id: 'change-1',
-    repoId: primaryRepo.id,
-    filePath:
-        'lib/src/presentation/presentation_layer_with_a_name_that_used_to_truncate_badly.dart',
-    provider: ForgeAiProvider.openai,
+  const executionSession = ForgeRepoExecutionSession(
+    id: 'execution-1',
+    repoId: 'repo-1',
     prompt: 'Improve small-screen layout spacing and remove truncated text.',
-    status: 'draft',
+    mode: 'normal',
     summary: 'Adjusts spacing, wrapping, and button grouping for mobile.',
-    beforeContent: 'Row(children:[Text("Old title"),Text("Cut off")])',
-    afterContent: 'Wrap(children:[Text("Old title"),Text("Visible title")])',
     estimatedTokens: 420,
-    diffLines: <ForgeDiffLine>[
-      ForgeDiffLine(
-        prefix: '-',
-        line: 'Row(children:[...])',
-        isAddition: false,
-      ),
-      ForgeDiffLine(
-        prefix: '+',
-        line: 'Wrap(children:[...])',
-        isAddition: true,
-      ),
-      ForgeDiffLine(
-        prefix: '+',
-        line: 'Buttons now stack and wrap on small devices.',
-        isAddition: true,
+    selectedFiles: <String>[
+      'lib/src/presentation/presentation_layer_with_a_name_that_used_to_truncate_badly.dart',
+    ],
+    dependencyFiles: <String>[
+      'lib/src/features/editor/editor_workflow_screen.dart',
+    ],
+    inspectedFiles: <String>[
+      'lib/src/presentation/presentation_layer_with_a_name_that_used_to_truncate_badly.dart',
+      'lib/src/features/editor/editor_workflow_screen.dart',
+      'pubspec.yaml',
+    ],
+    globalContextFiles: <String>['pubspec.yaml'],
+    steps: <String>[
+      'Indexed repository files',
+      'Expanded repo context',
+      'Selected editable files',
+      'Validated structured output',
+    ],
+    actionType: 'refactor_code',
+    planningSummary:
+        'Inspected the main presentation widget and adjacent editor workflow before preparing a mobile-safe diff.',
+    edits: <ForgeRepoExecutionFileChange>[
+      ForgeRepoExecutionFileChange(
+        path:
+            'lib/src/presentation/presentation_layer_with_a_name_that_used_to_truncate_badly.dart',
+        action: 'modify',
+        summary: 'Adjusts spacing, wrapping, and button grouping for mobile.',
+        beforeContent: 'Row(children:[Text("Old title"),Text("Cut off")])',
+        afterContent: 'Wrap(children:[Text("Old title"),Text("Visible title")])',
+        diffLines: <ForgeDiffLine>[
+          ForgeDiffLine(
+            prefix: '-',
+            line: 'Row(children:[...])',
+            isAddition: false,
+          ),
+          ForgeDiffLine(
+            prefix: '+',
+            line: 'Wrap(children:[...])',
+            isAddition: true,
+          ),
+          ForgeDiffLine(
+            prefix: '+',
+            line: 'Buttons now stack and wrap on small devices.',
+            isAddition: true,
+          ),
+        ],
       ),
     ],
   );
@@ -546,7 +572,7 @@ ForgeWorkspaceState _sampleWorkspaceState() {
     selectedBranch: primaryRepo.defaultBranch,
     selectedFile: files.first.children.first.children.first,
     currentDocument: currentDocument,
-    currentChangeRequest: changeRequest,
+    currentExecutionSession: executionSession,
   );
 }
 

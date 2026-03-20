@@ -249,6 +249,7 @@ class ForgeRepoWorkflow {
 
 class ForgeCheckRun {
   const ForgeCheckRun({
+    this.id,
     required this.name,
     required this.status,
     required this.summary,
@@ -256,8 +257,16 @@ class ForgeCheckRun {
     required this.logsAvailable,
     required this.progress,
     this.logsUrl,
+    this.source,
+    this.executionState,
+    this.agentTaskId,
+    this.workflowCategory,
+    this.ref,
+    this.logs = const <String>[],
+    this.findings = const <String>[],
   });
 
+  final String? id;
   final String name;
   final ForgeCheckStatus status;
   final String summary;
@@ -265,6 +274,13 @@ class ForgeCheckRun {
   final bool logsAvailable;
   final double progress;
   final String? logsUrl;
+  final String? source;
+  final String? executionState;
+  final String? agentTaskId;
+  final String? workflowCategory;
+  final String? ref;
+  final List<String> logs;
+  final List<String> findings;
 }
 
 class ForgeTokenWallet {

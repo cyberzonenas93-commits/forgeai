@@ -6,7 +6,7 @@ CodeCatalystAI now treats prompts as durable agent tasks instead of one-shot cha
 ## Core Components
 - Flutter client: submits prompts, watches task/event streams, shows the active work session, queued prompts, approvals, and controls.
 - Firestore task store: persists agent tasks, task events, approvals, execution sessions, and workspace locks.
-- Cloud Functions runner: owns queue promotion, workspace locking, repo inspection, model calls, approval pauses, follow-up actions, and final task completion.
+- Cloud Functions runner: owns queue promotion, workspace locking, local workspace cloning, repo inspection, model calls, sandbox validation and repair, approval pauses, follow-up actions, and final task completion.
 
 ## Firestore Model
 - `users/{ownerId}/agentTasks/{taskId}`
@@ -29,13 +29,15 @@ CodeCatalystAI now treats prompts as durable agent tasks instead of one-shot cha
 3. Firestore trigger `runAgentTask` starts when `runToken` changes.
 4. The runner executes a multi-step pass:
    - analyze request
+   - clone a task-local repo workspace
    - inspect repo and load file content
    - rank/select files
    - call the model
-   - retry once with a repair prompt if the diff payload is invalid
+   - retry malformed payloads across routed providers when needed
    - validate guardrails
-   - pause for approval before writes
-5. After approval, the runner applies edits, validates the working copy, then optionally pauses for commit / PR / merge / deploy checkpoints requested by the prompt.
+   - validate and repair the candidate diff inside sandbox copies of the task-local workspace
+   - pause for approval before writing the validated result into the task-local workspace
+5. After approval, the runner applies edits to the task-local cloned workspace, validates post-apply local consistency, then optionally pauses for commit / PR / merge / deploy checkpoints requested by the prompt.
 6. Final states release the workspace lock and automatically promote the next queued task.
 
 ## Frontend Flow
@@ -51,11 +53,11 @@ CodeCatalystAI now treats prompts as durable agent tasks instead of one-shot cha
 - max file touch count per task
 - explicit cancellation support
 - pause at safe checkpoints
-- approval gates before any working-copy write or risky remote action
+- approval gates before any approved local-workspace write or risky remote action
 
 ## Follow-up Actions
 When a prompt explicitly asks for remote actions, the runner can continue into approved follow-up steps:
-- commit current working copy
+- commit current local workspace
 - create branch + open pull request
 - merge an agent-created pull request
 - dispatch the deploy workflow

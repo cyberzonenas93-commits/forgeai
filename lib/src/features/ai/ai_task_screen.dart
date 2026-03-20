@@ -4,7 +4,6 @@ import '../../core/theme/forge_palette.dart';
 import '../../shared/forge_user_friendly_error.dart';
 import '../../shared/widgets/forge_widgets.dart';
 import '../workspace/application/forge_workspace_controller.dart';
-import '../workspace/domain/forge_workspace_entities.dart';
 
 class AiTaskScreen extends StatefulWidget {
   const AiTaskScreen({super.key, required this.controller});
@@ -50,7 +49,7 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                       ForgeSectionHeader(
                         title: 'Repo-aware run',
                         subtitle:
-                            'Start a durable repo run from the editor. If another run is active, this request queues behind it. Wallet: $balance tokens.',
+                            'Start a durable repo work session from the editor. The agent will inspect the repo, edit files, validate, repair, and queue behind any active run. Wallet: $balance tokens.',
                       ),
                       const SizedBox(height: 16),
                       SegmentedButton<bool>(
@@ -115,7 +114,7 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                         ),
                       ],
                       Text(
-                        '~$estimate tokens estimated • ${state.repoExecutionDeepMode ? 'deep mode loads more files' : 'normal mode stays fast'} • review before apply/commit',
+                        '~$estimate tokens estimated • ${state.repoExecutionDeepMode ? 'deep mode widens repo reasoning and repair scope' : 'normal mode stays faster'} • approval is only required before apply/commit',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: ForgePalette.textSecondary,
                         ),
@@ -137,7 +136,7 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                         const ForgeCodeBlock(
                           lines: [
                             'No run selected yet.',
-                            'Start a repo run and follow it from the Agent tab.',
+                            'Start a repo run and follow the live agent work from the Agent tab.',
                           ],
                         )
                       else ...[
@@ -171,8 +170,11 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                           lines: [
                             'Run status:',
                             '- ${task.currentStep}',
-                            if (task.selectedFiles.isNotEmpty) 'Files in scope:',
-                            ...task.selectedFiles.take(8).map((path) => '- $path'),
+                            if (task.selectedFiles.isNotEmpty)
+                              'Current editable wave:',
+                            ...task.selectedFiles
+                                .take(8)
+                                .map((path) => '- $path'),
                           ],
                         ),
                       ],
@@ -191,7 +193,6 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
     try {
       await widget.controller.runAiAction(
         prompt: _promptController.text.trim(),
-        provider: ForgeAiProvider.openai,
       );
       if (!context.mounted) {
         return;

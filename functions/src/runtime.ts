@@ -14,6 +14,8 @@ export const PROVIDER_NAMES: readonly ProviderName[] = [
 
 export const AI_PROVIDER_NAMES: readonly AiProviderName[] = [
   'openai',
+  'anthropic',
+  'gemini',
 ];
 
 const PROVIDER_SECRET_MAP: Record<ProviderName, string[]> = {
