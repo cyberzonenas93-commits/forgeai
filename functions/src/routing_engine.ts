@@ -1,5 +1,8 @@
 import {
   getModelForTierAndProvider,
+  CLAUDE_OPUS_MODEL,
+  CLAUDE_SONNET_MODEL,
+  CLAUDE_HAIKU_MODEL,
   type ModelTier,
 } from './economics-config'
 import type { AgentCostProfile } from './cost_optimization'
@@ -44,6 +47,22 @@ function dedupeProviders(values: AiProviderName[]) {
   return ordered
 }
 
+/**
+ * Maps a pipeline stage + deepMode flag to a model tier.
+ *
+ * Claude model assignments per tier (Anthropic provider):
+ *   priority → claude-opus-4-6           ($15/$75 per 1M in/out)  — planning, diff gen, repair
+ *   standard → claude-sonnet-4-6         ($3/$15 per 1M in/out)   — standard planning
+ *   basic    → claude-haiku-4-5-20251001 ($0.25/$1.25 per 1M)     — fast validation (not yet used here)
+ *
+ * Stage → tier mapping:
+ *   context_planner   deepMode  → priority  → claude-opus-4-6   (complex repo context)
+ *   context_planner   normal    → standard  → claude-sonnet-4-6 (fast context scan)
+ *   execution_planner deepMode  → priority  → claude-opus-4-6   (broad multi-file scope)
+ *   execution_planner normal    → standard  → claude-sonnet-4-6 (scope planning)
+ *   generate_diff               → priority  → claude-opus-4-6   (highest quality diffs)
+ *   repair_diff                 → priority  → claude-opus-4-6   (best reasoning for repair)
+ */
 function repoExecutionTierForStage(stage: RepoExecutionProviderStage, deepMode: boolean): ModelTier {
   switch (stage) {
     case 'context_planner':
@@ -56,6 +75,22 @@ function repoExecutionTierForStage(stage: RepoExecutionProviderStage, deepMode: 
   }
 }
 
+/**
+ * Ordered list of providers to try for a given stage.
+ *
+ * Anthropic (Claude) is the default first-choice provider for all stages now
+ * that it is fully integrated as a first-class provider.  The only exception
+ * is the `economy` cost profile, where cheaper providers (OpenAI / Gemini)
+ * are preferred to keep costs down.
+ *
+ * Per-stage Claude model selection (via MODEL_TIERS in economics-config.ts):
+ *   context_planner   deepMode  → claude-opus-4-6
+ *   context_planner   normal    → claude-sonnet-4-6
+ *   execution_planner deepMode  → claude-opus-4-6
+ *   execution_planner normal    → claude-sonnet-4-6
+ *   generate_diff               → claude-opus-4-6
+ *   repair_diff                 → claude-opus-4-6
+ */
 function preferredProviderOrder(params: {
   requestedProvider?: AiProviderName | null
   stage: RepoExecutionProviderStage
@@ -65,28 +100,17 @@ function preferredProviderOrder(params: {
   costProfile?: AgentCostProfile | null
 }) {
   const requestedProvider = params.requestedProvider ?? null
-  const largeRepo =
-    params.repoSizeClass === 'large' || params.repoSizeClass === 'huge'
-  const retrying = (params.retryCount ?? 0) > 0
+  // Anthropic is the default first-choice provider across all stages.
+  // Economy profile overrides this to prefer cheaper options.
   let preferred: AiProviderName[]
 
-  if (params.stage === 'repair_diff') {
-    preferred = ['anthropic', 'openai', 'gemini']
-  } else if (params.stage === 'context_planner' || params.stage === 'execution_planner') {
-    preferred =
-      params.deepMode || largeRepo
-        ? ['anthropic', 'openai', 'gemini']
-        : ['openai', 'anthropic', 'gemini']
-  } else {
-    preferred =
-      retrying || params.deepMode || largeRepo
-        ? ['anthropic', 'openai', 'gemini']
-        : ['openai', 'anthropic', 'gemini']
-  }
-
   if (params.costProfile === 'economy') {
+    // Economy: prefer lower-cost providers; use Claude only as last resort.
     preferred = ['openai', 'gemini', 'anthropic']
-  } else if (params.costProfile === 'quality') {
+  } else {
+    // Standard / quality / unset: Claude leads all pipeline stages.
+    // claude-opus-4-6   → planning, diff generation, repair  (priority tier)
+    // claude-sonnet-4-6 → standard planning                  (standard tier)
     preferred = ['anthropic', 'openai', 'gemini']
   }
 
@@ -95,6 +119,19 @@ function preferredProviderOrder(params: {
     ...preferred,
     ...AI_PROVIDER_NAMES,
   ])
+}
+
+function claudeModelSuffix(stage: RepoExecutionProviderStage, deepMode: boolean): string {
+  switch (stage) {
+    case 'context_planner':
+    case 'execution_planner':
+      return deepMode ? ` (${CLAUDE_OPUS_MODEL})` : ` (${CLAUDE_SONNET_MODEL})`
+    case 'generate_diff':
+    case 'repair_diff':
+      return ` (${CLAUDE_OPUS_MODEL})`
+    default:
+      return ` (${CLAUDE_HAIKU_MODEL})`
+  }
 }
 
 function providerReason(params: {
@@ -106,21 +143,24 @@ function providerReason(params: {
 }) {
   const retrying = (params.retryCount ?? 0) > 0
   const sizeLabel = params.repoSizeClass ? `${params.repoSizeClass} repo` : 'repo'
+  const modelSuffix = params.provider === 'anthropic'
+    ? claudeModelSuffix(params.stage, params.deepMode)
+    : ''
   switch (params.stage) {
     case 'context_planner':
       return params.deepMode
-        ? `Using ${params.provider} for deeper repo-context planning on a ${sizeLabel}.`
-        : `Using ${params.provider} for fast repo-context planning.`
+        ? `Using ${params.provider}${modelSuffix} for deeper repo-context planning on a ${sizeLabel}.`
+        : `Using ${params.provider}${modelSuffix} for fast repo-context planning.`
     case 'execution_planner':
       return params.deepMode
-        ? `Using ${params.provider} to plan a broader multi-file execution scope.`
-        : `Using ${params.provider} to finalize the editable and read-only scope.`
+        ? `Using ${params.provider}${modelSuffix} to plan a broader multi-file execution scope.`
+        : `Using ${params.provider}${modelSuffix} to finalize the editable and read-only scope.`
     case 'repair_diff':
-      return `Using ${params.provider} for repair pass ${retrying ? 'regeneration' : 'generation'} after validation feedback.`
+      return `Using ${params.provider}${modelSuffix} for repair pass ${retrying ? 'regeneration' : 'generation'} after validation feedback.`
     case 'generate_diff':
       return params.deepMode
-        ? `Using ${params.provider} to generate a deeper repo-native diff.`
-        : `Using ${params.provider} to generate the primary repo diff.`
+        ? `Using ${params.provider}${modelSuffix} to generate a deeper repo-native diff.`
+        : `Using ${params.provider}${modelSuffix} to generate the primary repo diff.`
   }
 }
 

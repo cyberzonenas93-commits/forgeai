@@ -113,20 +113,35 @@ export const ACTION_TIER: Record<string, ModelTier> = {
 /** Model tier -> provider model id (env can override at runtime). */
 export type ProviderName = 'openai' | 'anthropic' | 'gemini';
 
+// ---------------------------------------------------------------------------
+// Claude model identifiers (current generation)
+// Costs (USD per 1M tokens):  input / output
+//   claude-haiku-4-5-20251001 : $0.25  / $1.25   — fast, cheap, validation/repair
+//   claude-sonnet-4-6         : $3     / $15      — balanced, best for diff generation
+//   claude-opus-4-6           : $15    / $75      — highest quality, complex planning
+// Override at runtime via ANTHROPIC_MODEL_BASIC / _STANDARD / _PRIORITY env vars.
+// ---------------------------------------------------------------------------
+export const CLAUDE_HAIKU_MODEL  = 'claude-haiku-4-5-20251001'
+export const CLAUDE_SONNET_MODEL = 'claude-sonnet-4-6'
+export const CLAUDE_OPUS_MODEL   = 'claude-opus-4-6'
+
 export const MODEL_TIERS: Record<ModelTier, Record<ProviderName, string>> = {
+  // basic  → fast/cheap  → Haiku for Anthropic
   basic: {
     openai: process.env.OPENAI_MODEL_BASIC ?? OPENAI_LATEST_CHAT_MODEL,
-    anthropic: process.env.ANTHROPIC_MODEL_BASIC ?? 'claude-3-5-haiku-20241022',
+    anthropic: process.env.ANTHROPIC_MODEL_BASIC ?? CLAUDE_HAIKU_MODEL,
     gemini: process.env.GEMINI_MODEL_BASIC ?? 'gemini-2.0-flash',
   },
+  // standard → balanced  → Sonnet for Anthropic
   standard: {
     openai: process.env.OPENAI_MODEL_STANDARD ?? OPENAI_LATEST_CHAT_MODEL,
-    anthropic: process.env.ANTHROPIC_MODEL_STANDARD ?? 'claude-3-5-sonnet-latest',
+    anthropic: process.env.ANTHROPIC_MODEL_STANDARD ?? CLAUDE_SONNET_MODEL,
     gemini: process.env.GEMINI_MODEL_STANDARD ?? 'gemini-2.0-flash',
   },
+  // priority → high quality → Opus for Anthropic
   priority: {
     openai: process.env.OPENAI_MODEL_PRIORITY ?? OPENAI_LATEST_CHAT_MODEL,
-    anthropic: process.env.ANTHROPIC_MODEL_PRIORITY ?? 'claude-3-5-sonnet-latest',
+    anthropic: process.env.ANTHROPIC_MODEL_PRIORITY ?? CLAUDE_OPUS_MODEL,
     gemini: process.env.GEMINI_MODEL_PRIORITY ?? 'gemini-2.0-flash',
   },
 };
