@@ -51,6 +51,10 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
   bool _isAutoSyncingRepositories = false;
 
   String? _boundOwnerId;
+
+  /// The authenticated user's ID, or null if not signed in.
+  String? get currentOwnerId => _boundOwnerId;
+
   bool _hasLoadedPromptThreads = false;
   int _promptRequestNonce = 0;
   int? _activePromptRequestId;
@@ -144,10 +148,7 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
       if (session != null &&
           value.selectedAgentTaskId == task.id &&
           value.selectedAgentTask?.sessionId == task.sessionId) {
-        value = value.copyWith(
-          currentExecutionSession: session,
-          clearCurrentChangeRequest: true,
-        );
+        value = value.copyWith(currentExecutionSession: session);
       }
     } catch (_) {
       // Keep task streaming resilient if the execution session loads late.
@@ -284,6 +285,10 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
     value = value.copyWith(repoExecutionDeepMode: enabled);
   }
 
+  void setAgentTrustLevel(AgentTrustLevel trustLevel) {
+    value = value.copyWith(agentTrustLevel: trustLevel);
+  }
+
   void addPromptAssistantMessage(String text) {
     final thread = currentPromptThread;
     if (thread == null || text.trim().isEmpty) return;
@@ -339,29 +344,6 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
       promptStatusThreadId: threadId,
       promptStatusText: status,
       promptStatusSteps: nextSteps,
-    );
-  }
-
-  ForgePromptAgentTrace _traceFromExecutionSession(
-    ForgeRepoExecutionSession session, {
-    required String threadId,
-  }) {
-    return ForgePromptAgentTrace(
-      threadId: threadId,
-      recordedAt: DateTime.now(),
-      steps: session.steps,
-      inspectedFiles: session.selectedFiles,
-      proposedEditFiles: session.edits.map((edit) => edit.path).toList(),
-      plannedEdits: session.edits
-          .map(
-            (edit) => ForgePromptPlannedEdit(
-              path: edit.path,
-              action: edit.action,
-              rationale: edit.summary,
-            ),
-          )
-          .toList(),
-      summary: session.summary,
     );
   }
 
@@ -456,25 +438,38 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
           'Select a repository before running repo-aware code execution.',
         );
       }
-      _updatePromptProgress(thread.id, 'Indexing repository');
-      _updatePromptProgress(thread.id, 'Retrieving relevant files');
-      _updatePromptProgress(thread.id, 'Generating structured diff');
-      final session = await repo.executeRepoTask(
+      _updatePromptProgress(thread.id, 'Queueing agent task');
+      _updatePromptProgress(thread.id, 'Waiting for workspace lock');
+      final taskId = await enqueueAgentTask(
         repoId: repoId,
         prompt: trimmed,
         currentFilePath: value.currentDocument?.path,
-        deepMode: value.repoExecutionDeepMode,
       );
+      await _bindAgentTaskEvents();
+      await _syncSelectedAgentTaskExecution();
       final reply =
-          '${session.summary}\n\nReview ${session.edits.length} file(s) in Code, then approve to apply them to the working copy.';
+          'Queued a live repo work item. The agent will map the repo, expand context, generate edits, validate, repair if needed, and then pause for your approval.';
       if (_cancelledPromptRequestIds.remove(requestId)) {
         return '';
       }
       if (_activePromptRequestId != requestId) {
         return '';
       }
-      _updatePromptProgress(thread.id, 'Preparing review session');
-      final trace = _traceFromExecutionSession(session, threadId: thread.id);
+      _updatePromptProgress(thread.id, 'Agent task running');
+      final trace = ForgePromptAgentTrace(
+        threadId: thread.id,
+        recordedAt: DateTime.now(),
+        steps: const <String>[
+          'Prompt received',
+          'Queued live agent work item',
+          'Waiting for repo inspection, edit generation, validation, and approval',
+        ],
+        inspectedFiles: const <String>[],
+        proposedEditFiles: const <String>[],
+        plannedEdits: const <ForgePromptPlannedEdit>[],
+        summary:
+            'Prompt now hands off to the durable agent runtime instead of the old one-shot diff path.',
+      );
       final assistantMsg = ForgePromptMessage(
         id: _newPromptId(),
         role: 'assistant',
@@ -484,9 +479,9 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
       value = value.copyWith(
         isPromptLoading: false,
         clearPromptStatus: true,
+        selectedAgentTaskId: taskId,
         promptLastAgentTrace: trace,
-        currentExecutionSession: session,
-        clearCurrentChangeRequest: true,
+        clearCurrentExecutionSession: true,
         promptThreads: value.promptThreads.map((t) {
           if (t.id != thread.id) return t;
           return t.copyWith(
@@ -1143,7 +1138,6 @@ jobs:
       selectedAgentTaskId: matchingTask?.id ?? value.selectedAgentTaskId,
       clearSelectedFile: true,
       clearCurrentDocument: true,
-      clearCurrentChangeRequest: true,
       clearCurrentExecutionSession: true,
     );
     await _bindFiles();
@@ -1153,23 +1147,6 @@ jobs:
 
   Future<void> selectBranch(String branch) async {
     value = value.copyWith(selectedBranch: branch);
-  }
-
-  Future<String> askRepo({
-    required String prompt,
-    ForgeAiProvider provider = ForgeAiProvider.openai,
-  }) async {
-    final repo = _repository;
-    if (repo == null) return '';
-    final repoId = value.selectedRepository?.id;
-    // OpenAI-only build.
-    final result = await repo.askRepo(
-      repoId: repoId,
-      prompt: prompt,
-      provider: 'openai',
-      dangerMode: false,
-    );
-    return result.reply;
   }
 
   Future<void> selectAgentTask(String taskId) async {
@@ -1184,7 +1161,6 @@ jobs:
         selectedBranch: repo.defaultBranch,
         clearSelectedFile: true,
         clearCurrentDocument: true,
-        clearCurrentChangeRequest: true,
         clearCurrentExecutionSession: true,
       );
       await _bindFiles();
@@ -1198,6 +1174,7 @@ jobs:
     required String prompt,
     String? repoId,
     String? currentFilePath,
+    ForgeAiProvider? provider,
   }) async {
     final repository = _repository;
     if (repository == null) {
@@ -1218,6 +1195,8 @@ jobs:
         currentFilePath: currentFilePath ?? value.currentDocument?.path,
         deepMode: value.repoExecutionDeepMode,
         threadId: value.selectedPromptThreadId,
+        provider: provider?.name,
+        trustLevel: value.agentTrustLevel.backendValue,
       );
       value = value.copyWith(
         isSubmittingAgentTask: false,
@@ -1366,7 +1345,6 @@ jobs:
     }
     value = value.copyWith(
       selectedFile: file,
-      clearCurrentChangeRequest: true,
       clearError: true,
     );
     await _bindFiles();
@@ -1555,7 +1533,6 @@ jobs:
       value = value.copyWith(
         clearCurrentDocument: true,
         clearSelectedFile: true,
-        clearCurrentChangeRequest: true,
         clearCurrentExecutionSession: true,
       );
     }
@@ -1589,7 +1566,7 @@ jobs:
 
   Future<void> runAiAction({
     required String prompt,
-    required ForgeAiProvider provider,
+    ForgeAiProvider? provider,
   }) async {
     final selectedRepository = value.selectedRepository;
     if (selectedRepository == null) {
@@ -1603,6 +1580,7 @@ jobs:
         currentFilePath: value.currentDocument?.path,
         deepMode: value.repoExecutionDeepMode,
         threadId: value.selectedPromptThreadId,
+        provider: provider?.name,
       );
       value = value.copyWith(
         isRunningAi: false,
@@ -1614,7 +1592,8 @@ jobs:
         _telemetry.logEvent(
           'forge_agent_task_started_from_editor',
           parameters: <String, Object?>{
-            'provider': provider.name,
+            'provider': provider?.name ?? 'auto',
+            'provider_routed': provider?.name ?? 'auto',
             'repo_id': selectedRepository.id,
             'mode': value.repoExecutionDeepMode ? 'deep' : 'normal',
           },
@@ -1752,91 +1731,6 @@ jobs:
     );
   }
 
-  Future<void> approveCurrentChange() async {
-    final changeRequest = value.currentChangeRequest;
-    final currentDocument = value.currentDocument;
-    if (changeRequest == null || currentDocument == null) {
-      return;
-    }
-    value = value.copyWith(isSavingFile: true, clearError: true);
-    try {
-      await _repository!.approveChangeRequest(
-        ownerId: _requireOwnerId(),
-        changeRequest: changeRequest,
-        currentDocument: currentDocument,
-      );
-      value = value.copyWith(
-        isSavingFile: false,
-        currentDocument: currentDocument.copyWith(
-          content: changeRequest.afterContent,
-          updatedAt: DateTime.now(),
-        ),
-        clearCurrentChangeRequest: true,
-      );
-      unawaited(
-        _telemetry.logEvent(
-          'forge_ai_change_approved',
-          parameters: <String, Object?>{
-            'estimated_tokens': changeRequest.estimatedTokens,
-            'path': changeRequest.filePath,
-          },
-        ),
-      );
-    } catch (error) {
-      value = value.copyWith(
-        isSavingFile: false,
-        errorMessage: forgeUserFriendlyMessage(error),
-      );
-      unawaited(
-        _telemetry.recordError(
-          error,
-          StackTrace.current,
-          reason: 'workspace_approve_change',
-        ),
-      );
-      rethrow;
-    }
-  }
-
-  Future<void> rejectCurrentChange() async {
-    final changeRequest = value.currentChangeRequest;
-    if (changeRequest == null) {
-      return;
-    }
-    value = value.copyWith(isSavingFile: true, clearError: true);
-    try {
-      await _repository!.rejectChangeRequest(
-        ownerId: _requireOwnerId(),
-        changeRequest: changeRequest,
-      );
-      value = value.copyWith(
-        isSavingFile: false,
-        clearCurrentChangeRequest: true,
-      );
-      unawaited(
-        _telemetry.logEvent(
-          'forge_ai_change_rejected',
-          parameters: <String, Object?>{
-            'estimated_tokens': changeRequest.estimatedTokens,
-            'path': changeRequest.filePath,
-          },
-        ),
-      );
-    } catch (error) {
-      value = value.copyWith(
-        isSavingFile: false,
-        errorMessage: forgeUserFriendlyMessage(error),
-      );
-      unawaited(
-        _telemetry.recordError(
-          error,
-          StackTrace.current,
-          reason: 'workspace_reject_change',
-        ),
-      );
-      rethrow;
-    }
-  }
 
   Future<void> submitGitAction({
     required ForgeGitActionType actionType,
@@ -2025,7 +1919,7 @@ jobs:
       return logsUrl;
     } catch (error) {
       final friendly = forgeErrorLooksLikeMissingGithubWorkflow(error)
-          ? 'No deploy workflow found. Add .github/workflows/deploy-functions.yml with workflow_dispatch, or tap Prompt tools → Install deploy-functions.yml.'
+          ? 'No deploy workflow found. Add .github/workflows/deploy-functions.yml with workflow_dispatch, then retry the deploy run.'
           : forgeUserFriendlyMessage(error);
       value = value.copyWith(
         isRunningCheck: false,

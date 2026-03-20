@@ -182,8 +182,29 @@ class ForgeWorkspaceRepository {
         .where('ownerId', isEqualTo: ownerId)
         .snapshots()
         .map((snapshot) {
-          final items = snapshot.docs.map(_forgeCheckFromDoc).toList();
-          items.sort((a, b) => b.progress.compareTo(a.progress));
+          final docs = snapshot.docs.toList()
+            ..sort((a, b) {
+              final aTime = _asDateTime(a.data()['createdAt']);
+              final bTime = _asDateTime(b.data()['createdAt']);
+              if (aTime == null && bTime == null) {
+                return 0;
+              }
+              if (aTime == null) {
+                return 1;
+              }
+              if (bTime == null) {
+                return -1;
+              }
+              return bTime.compareTo(aTime);
+            });
+          final items = docs.map(_forgeCheckFromDoc).toList();
+          items.sort((a, b) {
+            final runningCompare = b.progress.compareTo(a.progress);
+            if (runningCompare != 0) {
+              return runningCompare;
+            }
+            return 0;
+          });
           return items;
         });
   }
@@ -338,6 +359,8 @@ class ForgeWorkspaceRepository {
     String? currentFilePath,
     bool deepMode = false,
     String? threadId,
+    String? provider,
+    String? trustLevel,
   }) async {
     final callable = _functions.httpsCallable('enqueueAgentTask');
     final result = await callable.call({
@@ -348,6 +371,10 @@ class ForgeWorkspaceRepository {
         'currentFilePath': currentFilePath.trim(),
       if (threadId != null && threadId.trim().isNotEmpty)
         'threadId': threadId.trim(),
+      if (provider != null && provider.trim().isNotEmpty)
+        'provider': provider.trim(),
+      if (trustLevel != null && trustLevel.trim().isNotEmpty)
+        'trustLevel': trustLevel.trim(),
     });
     final data = result.data;
     if (data is Map) {
@@ -586,38 +613,6 @@ class ForgeWorkspaceRepository {
     );
   }
 
-  Future<ForgeChangeRequest> runAiAction({
-    required String ownerId,
-    required String repoId,
-    required String filePath,
-    required ForgeAiProvider provider,
-    required String prompt,
-  }) async {
-    final callable = _functions.httpsCallable('suggestChange');
-    final result = await callable.call({
-      'repoId': repoId,
-      'filePath': filePath,
-      'provider': provider.name,
-      'prompt': prompt,
-      'changeKind': 'ai',
-    });
-
-    final payload = Map<String, dynamic>.from(
-      (result.data as Map<Object?, Object?>).map(
-        (key, value) => MapEntry('$key', value),
-      ),
-    );
-    final changeRequestId = payload['changeRequestId'] as String?;
-    if (changeRequestId == null) {
-      throw StateError('AI result did not include a change request id.');
-    }
-    final changeRequest = await loadChangeRequest(changeRequestId);
-    if (changeRequest != null) {
-      return changeRequest;
-    }
-    throw StateError('Unable to load generated change request.');
-  }
-
   Future<ForgeRepoExecutionSession> executeRepoTask({
     required String repoId,
     required String prompt,
@@ -631,7 +626,6 @@ class ForgeWorkspaceRepository {
       if (currentFilePath != null && currentFilePath.trim().isNotEmpty)
         'currentFilePath': currentFilePath.trim(),
       'deepMode': deepMode,
-      'provider': 'openai',
     });
     final data = result.data;
     final sessionId = data['sessionId'] as String?;
@@ -653,6 +647,24 @@ class ForgeWorkspaceRepository {
       for (final item in dependencyRaw) {
         if (item is String && item.trim().isNotEmpty) {
           dependencyFiles.add(item.trim());
+        }
+      }
+    }
+    final inspectedFiles = <String>[];
+    final inspectedRaw = data['inspectedFiles'];
+    if (inspectedRaw is List) {
+      for (final item in inspectedRaw) {
+        if (item is String && item.trim().isNotEmpty) {
+          inspectedFiles.add(item.trim());
+        }
+      }
+    }
+    final globalContextFiles = <String>[];
+    final globalContextRaw = data['globalContextFiles'];
+    if (globalContextRaw is List) {
+      for (final item in globalContextRaw) {
+        if (item is String && item.trim().isNotEmpty) {
+          globalContextFiles.add(item.trim());
         }
       }
     }
@@ -696,12 +708,40 @@ class ForgeWorkspaceRepository {
       estimatedTokens: (data['estimatedTokens'] as num?)?.toInt() ?? 0,
       selectedFiles: selectedFiles,
       dependencyFiles: dependencyFiles,
+      inspectedFiles: inspectedFiles,
+      globalContextFiles: globalContextFiles,
       steps: steps,
       actionType: (data['actionType'] as String?) ?? 'refactor_code',
       edits: edits,
+      repoOverview: data['repoOverview'] as String?,
+      architectureOverview: data['architectureOverview'] as String?,
+      moduleOverview: data['moduleOverview'] as String?,
+      repoSizeClass: data['repoSizeClass'] as String?,
+      contextStrategy: data['contextStrategy'] as String?,
+      executionMemorySummary: data['executionMemorySummary'] as String?,
+      repoCoverageNotice: data['repoCoverageNotice'] as String?,
+      focusedModules: (data['focusedModules'] as List<dynamic>? ?? const [])
+          .whereType<String>()
+          .toList(),
+      moduleCount: (data['moduleCount'] as num?)?.toInt(),
+      architectureZoneCount: (data['architectureZoneCount'] as num?)?.toInt(),
+      explorationPassCount: (data['explorationPassCount'] as num?)?.toInt(),
+      hydratedPathCount: (data['hydratedPathCount'] as num?)?.toInt(),
+      wholeRepoEligible: (data['wholeRepoEligible'] as bool?) ?? false,
+      planningSummary: data['planningSummary'] as String?,
+      executionProvider: data['executionProvider'] as String?,
+      executionModel: data['executionModel'] as String?,
+      executionProviderReason: data['executionProviderReason'] as String?,
+      contextPlannerProvider: data['contextPlannerProvider'] as String?,
+      contextPlannerModel: data['contextPlannerModel'] as String?,
+      executionPlannerProvider: data['executionPlannerProvider'] as String?,
+      executionPlannerModel: data['executionPlannerModel'] as String?,
     );
   }
 
+  // DEPRECATED: Legacy Firestore-draft apply path.
+  // Use enqueueAgentTask with trustLevel for the git-native execution flow.
+  // Retained only for backward compatibility; do not use in new code.
   Future<void> applyRepoExecution({
     required String repoId,
     required String sessionId,
@@ -734,6 +774,14 @@ class ForgeWorkspaceRepository {
         (data['dependencyFiles'] as List<dynamic>? ?? const [])
             .whereType<String>()
             .toList();
+    final inspectedFiles =
+        (data['inspectedFiles'] as List<dynamic>? ?? const [])
+            .whereType<String>()
+            .toList();
+    final globalContextFiles =
+        (data['globalContextFiles'] as List<dynamic>? ?? const [])
+            .whereType<String>()
+            .toList();
     final steps = (data['steps'] as List<dynamic>? ?? const [])
         .whereType<String>()
         .toList();
@@ -762,63 +810,34 @@ class ForgeWorkspaceRepository {
       estimatedTokens: (data['estimatedTokens'] as num?)?.toInt() ?? 0,
       selectedFiles: selectedFiles,
       dependencyFiles: dependencyFiles,
+      inspectedFiles: inspectedFiles,
+      globalContextFiles: globalContextFiles,
       steps: steps,
       actionType: (data['actionType'] as String?) ?? 'refactor_code',
       edits: edits,
-    );
-  }
-
-  Future<ForgeChangeRequest?> loadChangeRequest(String changeRequestId) async {
-    final snapshot = await _firestore
-        .collection('changeRequests')
-        .doc(changeRequestId)
-        .get();
-    if (!snapshot.exists) {
-      return null;
-    }
-    return _forgeChangeRequestFromDoc(snapshot);
-  }
-
-  Future<void> approveChangeRequest({
-    required String ownerId,
-    required ForgeChangeRequest changeRequest,
-    required ForgeFileDocument currentDocument,
-  }) async {
-    await _fileRef(changeRequest.repoId, changeRequest.filePath).set({
-      'path': currentDocument.path,
-      'language': currentDocument.language,
-      'content': changeRequest.afterContent,
-      'baseContent': currentDocument.originalContent,
-      'sha': currentDocument.sha,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    await _firestore.collection('changeRequests').doc(changeRequest.id).set({
-      'status': 'approved',
-      'approvedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    await _writeActivity(
-      ownerId: ownerId,
-      kind: 'ai',
-      message: 'Approved AI change for ${changeRequest.filePath}.',
-      accent: 'ai',
-    );
-  }
-
-  Future<void> rejectChangeRequest({
-    required String ownerId,
-    required ForgeChangeRequest changeRequest,
-  }) async {
-    await _firestore.collection('changeRequests').doc(changeRequest.id).set({
-      'status': 'rejected',
-      'rejectedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-    await _writeActivity(
-      ownerId: ownerId,
-      kind: 'ai',
-      message: 'Rejected AI change for ${changeRequest.filePath}.',
-      accent: 'ai',
+      repoOverview: data['repoOverview'] as String?,
+      architectureOverview: data['architectureOverview'] as String?,
+      moduleOverview: data['moduleOverview'] as String?,
+      repoSizeClass: data['repoSizeClass'] as String?,
+      contextStrategy: data['contextStrategy'] as String?,
+      executionMemorySummary: data['executionMemorySummary'] as String?,
+      repoCoverageNotice: data['repoCoverageNotice'] as String?,
+      focusedModules: (data['focusedModules'] as List<dynamic>? ?? const [])
+          .whereType<String>()
+          .toList(),
+      moduleCount: (data['moduleCount'] as num?)?.toInt(),
+      architectureZoneCount: (data['architectureZoneCount'] as num?)?.toInt(),
+      explorationPassCount: (data['explorationPassCount'] as num?)?.toInt(),
+      hydratedPathCount: (data['hydratedPathCount'] as num?)?.toInt(),
+      wholeRepoEligible: (data['wholeRepoEligible'] as bool?) ?? false,
+      planningSummary: data['planningSummary'] as String?,
+      executionProvider: data['executionProvider'] as String?,
+      executionModel: data['executionModel'] as String?,
+      executionProviderReason: data['executionProviderReason'] as String?,
+      contextPlannerProvider: data['contextPlannerProvider'] as String?,
+      contextPlannerModel: data['contextPlannerModel'] as String?,
+      executionPlannerProvider: data['executionPlannerProvider'] as String?,
+      executionPlannerModel: data['executionPlannerModel'] as String?,
     );
   }
 
@@ -984,98 +1003,6 @@ class ForgeWorkspaceRepository {
   Future<void> syncRepository(String repoId) async {
     final callable = _functions.httpsCallable('syncRepository');
     await callable.call({'repoId': repoId});
-  }
-
-  Future<ForgeAskRepoResult> askRepo({
-    String? repoId,
-    required String prompt,
-    String provider = 'openai',
-    List<ForgePromptMessage> history = const <ForgePromptMessage>[],
-    List<ForgePromptMediaAttachment> media =
-        const <ForgePromptMediaAttachment>[],
-    bool dangerMode = false,
-  }) async {
-    final callable = _functions.httpsCallable('askRepo');
-    final result = await callable.call<Map<Object?, Object?>>({
-      if (repoId != null && repoId.isNotEmpty) 'repoId': repoId,
-      'prompt': prompt,
-      'provider': provider,
-      if (history.isNotEmpty)
-        'history': history
-            .map((message) => {'role': message.role, 'text': message.text})
-            .toList(),
-      if (media.isNotEmpty)
-        'media': media
-            .map(
-              (m) => {
-                'fileName': m.fileName,
-                'mimeType': m.mimeType,
-                'dataBase64': m.dataBase64,
-              },
-            )
-            .toList(),
-      'dangerMode': dangerMode,
-    });
-    final data = result.data;
-    final reply = data['reply'];
-    final trace = data['trace'];
-    final inspectedFiles = <String>[];
-    final plannedEdits = <ForgePromptPlannedEdit>[];
-    final appliedEdits = <ForgePromptAppliedEdit>[];
-    if (trace is Map<Object?, Object?>) {
-      final traceMap = trace.map((key, value) => MapEntry('$key', value));
-      final inspectedRaw = traceMap['inspectedFiles'];
-      if (inspectedRaw is List) {
-        for (final item in inspectedRaw) {
-          if (item is String && item.trim().isNotEmpty) {
-            inspectedFiles.add(item.trim());
-          }
-        }
-      }
-      final editsRaw = traceMap['plannedEdits'];
-      if (editsRaw is List) {
-        for (final item in editsRaw) {
-          if (item is Map) {
-            final map = item.map((key, value) => MapEntry('$key', value));
-            final path = (map['path'] as String?)?.trim() ?? '';
-            final action = (map['action'] as String?)?.trim() ?? 'modify';
-            final rationale = (map['rationale'] as String?)?.trim() ?? '';
-            if (path.isEmpty) {
-              continue;
-            }
-            plannedEdits.add(
-              ForgePromptPlannedEdit(
-                path: path,
-                action: action,
-                rationale: rationale,
-              ),
-            );
-          }
-        }
-      }
-      final appliedRaw = traceMap['appliedEdits'];
-      if (appliedRaw is List) {
-        for (final item in appliedRaw) {
-          if (item is Map) {
-            final map = item.map((key, value) => MapEntry('$key', value));
-            final path = (map['path'] as String?)?.trim() ?? '';
-            final action = (map['action'] as String?)?.trim() ?? '';
-            if (path.isEmpty) {
-              continue;
-            }
-            appliedEdits.add(
-              ForgePromptAppliedEdit(path: path, action: action),
-            );
-          }
-        }
-      }
-    }
-    return ForgeAskRepoResult(
-      reply: reply is String ? reply : '',
-      inspectedFiles: inspectedFiles,
-      plannedEdits: plannedEdits,
-      appliedEdits: appliedEdits,
-    );
   }
 
   Future<void> submitGitAction({
@@ -1304,7 +1231,28 @@ class ForgeWorkspaceRepository {
     final data = doc.data();
     final status = _checkStatusFromString(data['status'] as String?);
     final startedAt = _asDateTime(data['createdAt']);
+    final logs = (data['logs'] as List<dynamic>? ?? const <dynamic>[])
+        .whereType<String>()
+        .toList();
+    final findings = (data['findings'] as List<dynamic>? ?? const <dynamic>[])
+        .whereType<Map>()
+        .map((item) => item.map((key, value) => MapEntry('$key', value)))
+        .map((item) {
+          final filePath = item['filePath'] as String?;
+          final line = item['line'] as num?;
+          final message = (item['message'] as String?)?.trim() ?? '';
+          if (message.isEmpty) {
+            return '';
+          }
+          final prefix = (filePath ?? '').trim().isEmpty
+              ? ''
+              : '${filePath!.trim()}${line != null ? ':${line.toInt()}' : ''} ';
+          return '$prefix$message'.trim();
+        })
+        .where((item) => item.isNotEmpty)
+        .toList();
     return ForgeCheckRun(
+      id: doc.id,
       name: (data['workflowName'] as String?) ?? 'CI workflow',
       status: status,
       summary:
@@ -1312,7 +1260,8 @@ class ForgeWorkspaceRepository {
           'Queued from $kAppDisplayName for explicit CI execution.',
       duration: _formatTimestamp(startedAt),
       logsAvailable:
-          ((data['logs'] as List<dynamic>?)?.isNotEmpty ?? false) ||
+          logs.isNotEmpty ||
+          findings.isNotEmpty ||
           (data['logsUrl'] as String?) != null,
       progress: switch (status) {
         ForgeCheckStatus.queued => 0.12,
@@ -1321,6 +1270,13 @@ class ForgeWorkspaceRepository {
         ForgeCheckStatus.failed => 1,
       },
       logsUrl: data['logsUrl'] as String?,
+      source: data['source'] as String?,
+      executionState: data['executionState'] as String?,
+      agentTaskId: data['agentTaskId'] as String?,
+      workflowCategory: data['workflowCategory'] as String?,
+      ref: data['ref'] as String?,
+      logs: logs,
+      findings: findings,
     );
   }
 
@@ -1333,44 +1289,6 @@ class ForgeWorkspaceRepository {
       cost: '${(data['amount'] as num?)?.toInt() ?? 0}',
       repo: (data['repoId'] as String?) ?? 'Workspace',
       timestamp: _formatTimestamp(_asDateTime(data['createdAt'])),
-    );
-  }
-
-  ForgeChangeRequest _forgeChangeRequestFromDoc(
-    DocumentSnapshot<Map<String, dynamic>> doc,
-  ) {
-    final data = doc.data() ?? const <String, dynamic>{};
-    final beforeContent =
-        (data['beforeContent'] as String?) ?? (data['before'] as String?) ?? '';
-    final afterContent =
-        (data['afterContent'] as String?) ?? (data['after'] as String?) ?? '';
-    final diffPayload =
-        (data['diffLines'] as List<dynamic>? ?? const <dynamic>[])
-            .map(
-              (line) => ForgeDiffLine(
-                prefix:
-                    (line as Map<String, dynamic>)['prefix'] as String? ?? '+',
-                line: line['line'] as String? ?? '',
-                isAddition: (line['isAddition'] as bool?) ?? true,
-              ),
-            )
-            .toList();
-    return ForgeChangeRequest(
-      id: doc.id,
-      repoId: (data['repoId'] as String?) ?? '',
-      filePath: (data['filePath'] as String?) ?? '',
-      provider: _aiProviderFromString(data['provider'] as String?),
-      prompt: (data['prompt'] as String?) ?? '',
-      status: (data['status'] as String?) ?? 'draft',
-      summary:
-          (data['summary'] as String?) ??
-          'Review the proposed code changes before committing.',
-      beforeContent: beforeContent,
-      afterContent: afterContent,
-      diffLines: diffPayload.isNotEmpty
-          ? diffPayload
-          : _buildFallbackDiffLines(beforeContent, afterContent),
-      estimatedTokens: (data['estimatedTokens'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -1659,14 +1577,6 @@ class ForgeWorkspaceRepository {
     };
   }
 
-  ForgeAiProvider _aiProviderFromString(String? value) {
-    return switch (value) {
-      'anthropic' => ForgeAiProvider.anthropic,
-      'gemini' => ForgeAiProvider.gemini,
-      _ => ForgeAiProvider.openai,
-    };
-  }
-
   ForgeAgentTaskStatus _agentTaskStatusFromString(String? value) {
     return switch (value) {
       'running' => ForgeAgentTaskStatus.running,
@@ -1695,8 +1605,8 @@ class ForgeWorkspaceRepository {
       case 'ai':
       case 'ai_suggestion':
         return (
-          'AI change',
-          Icons.auto_awesome_rounded,
+          'Agent run',
+          Icons.auto_awesome_motion_rounded,
           const Color(0xFF60A5FA),
         );
       case 'git_action':
@@ -1781,25 +1691,6 @@ class ForgeWorkspaceRepository {
     return joined;
   }
 
-  List<ForgeDiffLine> _buildFallbackDiffLines(
-    String beforeContent,
-    String afterContent,
-  ) {
-    if (beforeContent == afterContent) {
-      return const <ForgeDiffLine>[];
-    }
-
-    final beforeLines = beforeContent.split('\n');
-    final afterLines = afterContent.split('\n');
-    return <ForgeDiffLine>[
-      ...beforeLines.map(
-        (line) => ForgeDiffLine(prefix: '-', line: line, isAddition: false),
-      ),
-      ...afterLines.map(
-        (line) => ForgeDiffLine(prefix: '+', line: line, isAddition: true),
-      ),
-    ];
-  }
 }
 
 class _MutableFolder {

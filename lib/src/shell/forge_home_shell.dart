@@ -11,6 +11,7 @@ import '../core/notifications/forge_push_controller.dart';
 import '../features/account/presentation/account_settings_screen.dart';
 import '../features/activity/activity_timeline_screen.dart';
 import '../features/agent/agent_mode_screen.dart';
+import '../features/agent/chat_prompt_screen.dart';
 import '../features/auth/application/auth_controller.dart';
 import '../features/auth/domain/auth_account.dart';
 import '../features/auth/presentation/guest_gate_dialog.dart';
@@ -72,7 +73,7 @@ class _ForgeHomeShellState extends State<ForgeHomeShell> {
     ),
     _ShellDestination(
       label: 'Agent',
-      subtitle: 'Active runs, queued work, approvals, and execution logs.',
+      subtitle: 'Chat-style prompt entry — type a task and the agent executes it.',
       icon: Icons.smart_toy_rounded,
     ),
     _ShellDestination(
@@ -209,6 +210,18 @@ class _ForgeHomeShellState extends State<ForgeHomeShell> {
     return () => setState(() => _currentIndex = index);
   }
 
+  /// Opens the full task-queue/AgentModeScreen as a pushed route on top of
+  /// the current shell page.  This preserves backward navigation to the chat
+  /// tab cleanly.
+  Future<void> _openAgentQueue() {
+    return _open(
+      AgentModeScreen(
+        controller: widget.workspaceController,
+        onSwitchToEditorTab: _switchTo(3),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<ForgeWorkspaceState>(
@@ -236,11 +249,14 @@ class _ForgeHomeShellState extends State<ForgeHomeShell> {
             account: widget.account,
             authController: widget.controller,
             onSwitchToRepoTab: _switchTo(4),
-            onSwitchToAskTab: _switchTo(2),
+            onSwitchToAgentTab: _switchTo(2),
           ),
-          AgentModeScreen(
+          // Chat-first agent entry point.  The full task queue is one tap
+          // away via the queue icon in the app bar (→ AgentModeScreen).
+          ChatPromptScreen(
             controller: widget.workspaceController,
             onSwitchToEditorTab: _switchTo(3),
+            onOpenTaskQueue: _openAgentQueue,
           ),
           EditorWorkflowScreen(
             controller: widget.workspaceController,
@@ -629,7 +645,7 @@ class _ShellSidebar extends StatelessWidget {
                         const SizedBox(width: 10),
                         Expanded(
                           child: _SidebarMetric(
-                            label: 'Threads',
+                            label: 'Runs',
                             value: '${state.promptThreads.length}',
                           ),
                         ),
@@ -659,7 +675,7 @@ class _ShellSidebar extends StatelessWidget {
             const Spacer(),
             if (collapsed) ...[
               _SidebarIconAction(
-                icon: Icons.chat_bubble_outline_rounded,
+                icon: Icons.auto_awesome_motion_rounded,
                 tooltip: 'Open Agent',
                 onTap: onOpenPrompt,
               ),

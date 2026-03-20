@@ -2,6 +2,38 @@ import '../../../shared/forge_models.dart';
 import 'forge_agent_entities.dart';
 import 'forge_workspace_entities.dart';
 
+/// Trust level that controls whether the agent pauses for human approval.
+///
+/// [supervised]           — all approval gates enforced (default).
+/// [autoApproveOnSuccess] — skip gates when validation passes; pause on failure.
+/// [fullyAutonomous]      — skip all approval gates including after failures.
+enum AgentTrustLevel {
+  supervised,
+  autoApproveOnSuccess,
+  fullyAutonomous;
+
+  /// The string value expected by the Cloud Function.
+  String get backendValue => switch (this) {
+    AgentTrustLevel.supervised => 'SUPERVISED',
+    AgentTrustLevel.autoApproveOnSuccess => 'AUTO_APPROVE_ON_SUCCESS',
+    AgentTrustLevel.fullyAutonomous => 'FULLY_AUTONOMOUS',
+  };
+
+  String get label => switch (this) {
+    AgentTrustLevel.supervised => 'Supervised',
+    AgentTrustLevel.autoApproveOnSuccess => 'Auto on success',
+    AgentTrustLevel.fullyAutonomous => 'Fully autonomous',
+  };
+
+  String get description => switch (this) {
+    AgentTrustLevel.supervised => 'Pause for approval at every step.',
+    AgentTrustLevel.autoApproveOnSuccess =>
+      'Auto-proceed when validation passes; pause on failures.',
+    AgentTrustLevel.fullyAutonomous =>
+      'Never pause — commit and push automatically.',
+  };
+}
+
 /// Default wallet until backend snapshot arrives. Backend grants unlimited only to allowlisted email.
 const _defaultWallet = ForgeTokenWallet(
   planName: 'Free',
@@ -42,13 +74,13 @@ class ForgeWorkspaceState {
     this.promptLastAgentTrace,
     this.promptDangerMode = true,
     this.repoExecutionDeepMode = false,
+    this.agentTrustLevel = AgentTrustLevel.supervised,
     this.notificationPreferences = ForgeNotificationPreferences.defaults,
     this.wallet = _defaultWallet,
     this.selectedRepository,
     this.selectedBranch,
     this.selectedFile,
     this.currentDocument,
-    this.currentChangeRequest,
     this.currentExecutionSession,
     this.errorMessage,
   });
@@ -81,13 +113,13 @@ class ForgeWorkspaceState {
   final ForgePromptAgentTrace? promptLastAgentTrace;
   final bool promptDangerMode;
   final bool repoExecutionDeepMode;
+  final AgentTrustLevel agentTrustLevel;
   final ForgeNotificationPreferences notificationPreferences;
   final ForgeTokenWallet wallet;
   final ForgeRepository? selectedRepository;
   final String? selectedBranch;
   final ForgeFileNode? selectedFile;
   final ForgeFileDocument? currentDocument;
-  final ForgeChangeRequest? currentChangeRequest;
   final ForgeRepoExecutionSession? currentExecutionSession;
   final String? errorMessage;
 
@@ -137,20 +169,19 @@ class ForgeWorkspaceState {
     ForgePromptAgentTrace? promptLastAgentTrace,
     bool? promptDangerMode,
     bool? repoExecutionDeepMode,
+    AgentTrustLevel? agentTrustLevel,
     ForgeNotificationPreferences? notificationPreferences,
     ForgeTokenWallet? wallet,
     ForgeRepository? selectedRepository,
     String? selectedBranch,
     ForgeFileNode? selectedFile,
     ForgeFileDocument? currentDocument,
-    ForgeChangeRequest? currentChangeRequest,
     ForgeRepoExecutionSession? currentExecutionSession,
     String? errorMessage,
     bool clearRepository = false,
     bool clearSelectedBranch = false,
     bool clearSelectedFile = false,
     bool clearCurrentDocument = false,
-    bool clearCurrentChangeRequest = false,
     bool clearCurrentExecutionSession = false,
     bool clearError = false,
     bool clearSelectedPromptThread = false,
@@ -200,6 +231,7 @@ class ForgeWorkspaceState {
       promptDangerMode: promptDangerMode ?? this.promptDangerMode,
       repoExecutionDeepMode:
           repoExecutionDeepMode ?? this.repoExecutionDeepMode,
+      agentTrustLevel: agentTrustLevel ?? this.agentTrustLevel,
       notificationPreferences:
           notificationPreferences ?? this.notificationPreferences,
       wallet: wallet ?? this.wallet,
@@ -215,9 +247,6 @@ class ForgeWorkspaceState {
       currentDocument: clearCurrentDocument
           ? null
           : (currentDocument ?? this.currentDocument),
-      currentChangeRequest: clearCurrentChangeRequest
-          ? null
-          : (currentChangeRequest ?? this.currentChangeRequest),
       currentExecutionSession: clearCurrentExecutionSession
           ? null
           : (currentExecutionSession ?? this.currentExecutionSession),
