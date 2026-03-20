@@ -5,9 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:forge_ai/src/core/theme/app_theme.dart';
 import 'package:forge_ai/src/core/theme/forge_palette.dart';
 import 'package:forge_ai/src/features/account/presentation/account_settings_screen.dart';
+import 'package:forge_ai/src/features/agent/agent_mode_screen.dart';
 import 'package:forge_ai/src/features/account/presentation/delete_account_screen.dart';
 import 'package:forge_ai/src/features/activity/activity_timeline_screen.dart';
-import 'package:forge_ai/src/features/ask/ask_screen.dart';
 import 'package:forge_ai/src/features/auth/application/auth_controller.dart';
 import 'package:forge_ai/src/features/auth/domain/auth_account.dart';
 import 'package:forge_ai/src/features/auth/domain/auth_failure.dart';
@@ -25,6 +25,7 @@ import 'package:forge_ai/src/features/diff/diff_review_screen.dart';
 import 'package:forge_ai/src/features/editor/editor_workflow_screen.dart';
 import 'package:forge_ai/src/features/git/git_workflow_screen.dart';
 import 'package:forge_ai/src/features/legal/legal_document_screen.dart';
+import 'package:forge_ai/src/features/onboarding/data/onboarding_storage.dart';
 import 'package:forge_ai/src/features/onboarding/presentation/onboarding_screen.dart';
 import 'package:forge_ai/src/features/repos/account_hub_screen.dart';
 import 'package:forge_ai/src/features/repos/new_ai_project_screen.dart';
@@ -36,6 +37,7 @@ import 'package:forge_ai/src/features/workspace/application/forge_workspace_cont
 import 'package:forge_ai/src/features/workspace/domain/forge_workspace_entities.dart';
 import 'package:forge_ai/src/features/workspace/domain/forge_workspace_state.dart';
 import 'package:forge_ai/src/shared/forge_models.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   testWidgets('core screens render cleanly across compact mobile widths', (
@@ -45,6 +47,10 @@ void main() {
       tester.view.resetPhysicalSize();
       tester.view.resetDevicePixelRatio();
     });
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final onboardingStorage = OnboardingStorage(
+      await SharedPreferences.getInstance(),
+    );
 
     const widths = <double>[320, 375, 430];
 
@@ -62,7 +68,7 @@ void main() {
         ),
         MapEntry<String, Widget>(
           'OnboardingScreen',
-          OnboardingScreen(onComplete: () {}),
+          OnboardingScreen(storage: onboardingStorage, onComplete: () {}),
         ),
         MapEntry<String, Widget>(
           'DashboardScreen',
@@ -99,8 +105,8 @@ void main() {
           ),
         ),
         MapEntry<String, Widget>(
-          'AskScreen',
-          AskScreen(controller: harness.workspaceController),
+          'AgentModeScreen',
+          AgentModeScreen(controller: harness.workspaceController),
         ),
         MapEntry<String, Widget>(
           'EditorWorkflowScreen',

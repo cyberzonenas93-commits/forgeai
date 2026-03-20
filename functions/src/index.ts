@@ -10,6 +10,7 @@ import { getMessaging } from 'firebase-admin/messaging';
 import * as functions from 'firebase-functions/v1';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import type { CallableOptions, CallableRequest } from 'firebase-functions/v2/https';
+import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 
 import {
@@ -123,6 +124,27 @@ const DEFAULT_NOTIFICATION_PREFERENCES = {
   security: true,
   digest: true,
 } as const;
+const AGENT_TASK_STATUSES: readonly AgentTaskStatus[] = [
+  'queued',
+  'running',
+  'waiting_for_input',
+  'completed',
+  'failed',
+  'cancelled',
+];
+const AGENT_TASK_RUNTIME_OPTIONS = {
+  region: runtimeSettings.firebaseRegion,
+  timeoutSeconds: 540,
+  memory: '1GiB' as const,
+  secrets: ['OPENAI_API_KEY', 'GITHUB_TOKEN'],
+};
+const AGENT_TASK_MAX_RUNTIME_MS = 12 * 60_000;
+const AGENT_TASK_MAX_RETRIES = 2;
+const AGENT_TASK_MAX_TOKEN_BUDGET_NORMAL = 4_200;
+const AGENT_TASK_MAX_TOKEN_BUDGET_DEEP = 9_000;
+const AGENT_TASK_MAX_FILE_TOUCHES_NORMAL = 6;
+const AGENT_TASK_MAX_FILE_TOUCHES_DEEP = 14;
+const AGENT_TASK_STALE_RUNNING_LOCK_MS = 15 * 60_000;
 
 /** File text sent to suggestChange; GPT-5 Chat (latest alias) supports large contexts. */
 const AI_SUGGESTION_BASE_CONTENT_MAX_CHARS = 200_000;
@@ -134,6 +156,15 @@ function suggestionMaxOutputTokens(provider: AiProviderName): number {
     return Math.min(AI_SUGGESTION_MAX_OUTPUT_TOKENS, 8192);
   }
   return AI_SUGGESTION_MAX_OUTPUT_TOKENS;
+}
+
+function repoExecutionMaxOutputTokens(model: string, mode: RepoExecutionMode): number {
+  const requested = mode === 'deep' ? 24_000 : 12_000;
+  // GPT-5 chat models currently cap output at 16,384 completion tokens.
+  if (model.startsWith('gpt-5')) {
+    return Math.min(requested, 16_384);
+  }
+  return requested;
 }
 
 /** GPT-5.x Chat Completions use max_completion_tokens; omit fixed temperature. */
@@ -488,6 +519,22 @@ interface ApplyRepoExecutionData {
   sessionId: string;
 }
 
+interface EnqueueAgentTaskData {
+  repoId: string;
+  prompt: string;
+  currentFilePath?: string;
+  deepMode?: boolean;
+  threadId?: string;
+}
+
+interface AgentTaskControlData {
+  taskId: string;
+}
+
+interface ResolveAgentTaskApprovalData extends AgentTaskControlData {
+  decision: 'approved' | 'rejected';
+}
+
 interface GitFileChange {
   path: string;
   content: string;
@@ -604,6 +651,157 @@ interface ResolvedProviderToken {
   token: string;
   secretName: string;
   source: 'request' | 'user_connection' | 'runtime';
+}
+
+type AgentTaskStatus =
+  | 'queued'
+  | 'running'
+  | 'waiting_for_input'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+type AgentTaskEventType =
+  | 'task_created'
+  | 'task_started'
+  | 'repo_scanned'
+  | 'files_selected'
+  | 'file_read'
+  | 'ai_called'
+  | 'edits_applied'
+  | 'diff_generated'
+  | 'validation_started'
+  | 'validation_failed'
+  | 'retrying'
+  | 'awaiting_approval'
+  | 'remote_action_started'
+  | 'remote_action_completed'
+  | 'task_completed'
+  | 'task_failed'
+  | 'task_cancel_requested'
+  | 'task_cancelled'
+  | 'task_paused'
+  | 'task_resumed';
+
+type AgentTaskApprovalType =
+  | 'apply_changes'
+  | 'commit_changes'
+  | 'open_pull_request'
+  | 'merge_pull_request'
+  | 'deploy_workflow'
+  | 'resume_task'
+  | 'risky_operation';
+
+type AgentTaskPhase =
+  | 'queued'
+  | 'analyze_request'
+  | 'inspect_repo'
+  | 'generate_diff'
+  | 'awaiting_approval'
+  | 'apply_edits'
+  | 'validate'
+  | 'follow_up'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+interface AgentTaskFollowUpPlan {
+  commitChanges: boolean;
+  openPullRequest: boolean;
+  mergePullRequest: boolean;
+  deployWorkflow: boolean;
+  riskyOperation: boolean;
+}
+
+interface AgentTaskGuardrails {
+  maxRuntimeMs: number;
+  maxRetries: number;
+  maxTokenBudget: number;
+  maxFileTouchCount: number;
+}
+
+interface AgentTaskPendingApproval {
+  id: string;
+  type: AgentTaskApprovalType;
+  title: string;
+  description: string;
+  status: 'pending' | 'approved' | 'rejected';
+  actionLabel: string;
+  cancelLabel: string;
+  payload: Record<string, unknown>;
+  createdAtMs: number;
+  resolvedAtMs?: number | null;
+}
+
+interface AgentTaskDocument {
+  ownerId: string;
+  repoId: string;
+  prompt: string;
+  threadId?: string | null;
+  currentFilePath?: string | null;
+  deepMode: boolean;
+  status: AgentTaskStatus;
+  phase: AgentTaskPhase;
+  currentStep: string;
+  queueWorkspaceId: string;
+  runToken: number;
+  createdAtMs: number;
+  updatedAtMs: number;
+  startedAtMs?: number | null;
+  completedAtMs?: number | null;
+  cancelledAtMs?: number | null;
+  failedAtMs?: number | null;
+  cancelRequestedAtMs?: number | null;
+  pauseRequestedAtMs?: number | null;
+  currentPass: number;
+  retryCount: number;
+  eventCount: number;
+  selectedFiles: string[];
+  inspectedFiles: string[];
+  dependencyFiles: string[];
+  filesTouched: string[];
+  diffCount: number;
+  estimatedTokens: number;
+  sessionId?: string | null;
+  executionSummary?: string | null;
+  resultSummary?: string | null;
+  errorMessage?: string | null;
+  latestEventType?: AgentTaskEventType | null;
+  latestEventMessage?: string | null;
+  latestEventAtMs?: number | null;
+  latestValidationError?: string | null;
+  followUpPlan: AgentTaskFollowUpPlan;
+  guardrails: AgentTaskGuardrails;
+  pendingApproval?: AgentTaskPendingApproval | null;
+  metadata?: Record<string, unknown>;
+}
+
+interface AgentTaskEventDocument {
+  type: AgentTaskEventType;
+  step: string;
+  message: string;
+  status: AgentTaskStatus;
+  phase: AgentTaskPhase;
+  sequence: number;
+  createdAtMs: number;
+  data?: Record<string, unknown>;
+}
+
+interface RepoExecutionObserver {
+  onRepoScanned?: (details: { fileCount: number }) => Promise<void> | void;
+  onFilesSelected?: (details: {
+    selectedFiles: string[];
+    dependencyFiles: string[];
+    inspectedFiles: string[];
+  }) => Promise<void> | void;
+  onFileRead?: (details: { path: string; source: string }) => Promise<void> | void;
+  onAiCalled?: (details: { attempt: number; mode: RepoExecutionMode }) => Promise<void> | void;
+  onRetrying?: (details: { reason: string; attempt: number }) => Promise<void> | void;
+  onDiffGenerated?: (details: {
+    editCount: number;
+    summary: string;
+    sessionId: string;
+  }) => Promise<void> | void;
 }
 
 function requireAuth(request: CallableRequest<unknown>) {
@@ -726,6 +924,609 @@ function coerceRecord(value: unknown): Record<string, string> {
     }
   }
   return record;
+}
+
+function agentTaskCollection(ownerId: string) {
+  return db.collection('users').doc(ownerId).collection('agentTasks');
+}
+
+function agentTaskRef(ownerId: string, taskId: string) {
+  return agentTaskCollection(ownerId).doc(taskId);
+}
+
+function agentTaskEventsCollection(ownerId: string, taskId: string) {
+  return agentTaskRef(ownerId, taskId).collection('events');
+}
+
+function agentTaskApprovalsCollection(ownerId: string, taskId: string) {
+  return agentTaskRef(ownerId, taskId).collection('approvals');
+}
+
+function workspaceLockRef(repoId: string) {
+  return db.collection('workspaceLocks').doc(repoId);
+}
+
+function isAgentTaskFinalStatus(status: unknown): status is 'completed' | 'failed' | 'cancelled' {
+  return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+function buildAgentTaskGuardrails(deepMode: boolean): AgentTaskGuardrails {
+  return {
+    maxRuntimeMs: AGENT_TASK_MAX_RUNTIME_MS,
+    maxRetries: AGENT_TASK_MAX_RETRIES,
+    maxTokenBudget: deepMode
+      ? AGENT_TASK_MAX_TOKEN_BUDGET_DEEP
+      : AGENT_TASK_MAX_TOKEN_BUDGET_NORMAL,
+    maxFileTouchCount: deepMode
+      ? AGENT_TASK_MAX_FILE_TOUCHES_DEEP
+      : AGENT_TASK_MAX_FILE_TOUCHES_NORMAL,
+  };
+}
+
+function inferAgentFollowUpPlan(prompt: string): AgentTaskFollowUpPlan {
+  const normalized = prompt.toLowerCase();
+  const has = (...phrases: string[]) => phrases.some(phrase => normalized.includes(phrase));
+  const openPullRequest = has('open pr', 'open a pr', 'pull request', 'open merge request');
+  const mergePullRequest = has('merge pr', 'merge the pr', 'merge pull request', 'merge the pull request');
+  const deployWorkflow = has('deploy', 'ship', 'release');
+  const riskyOperation = has(
+    'force push',
+    'delete branch',
+    'drop database',
+    'remove secret',
+    'wipe',
+    'destroy',
+    'rm -rf',
+  );
+  return {
+    commitChanges: has('commit', 'push') || openPullRequest,
+    openPullRequest,
+    mergePullRequest,
+    deployWorkflow,
+    riskyOperation,
+  };
+}
+
+function buildAgentTaskPendingApproval(params: {
+  type: AgentTaskApprovalType;
+  title: string;
+  description: string;
+  actionLabel: string;
+  cancelLabel?: string;
+  payload?: Record<string, unknown>;
+}): AgentTaskPendingApproval {
+  return {
+    id: db.collection('_').doc().id,
+    type: params.type,
+    title: params.title,
+    description: params.description,
+    status: 'pending',
+    actionLabel: params.actionLabel,
+    cancelLabel: params.cancelLabel ?? 'Reject',
+    payload: params.payload ?? {},
+    createdAtMs: Date.now(),
+  };
+}
+
+function summarizeAgentTaskResult(task: Pick<AgentTaskDocument, 'executionSummary' | 'resultSummary'>) {
+  return task.resultSummary ?? task.executionSummary ?? 'Task completed.';
+}
+
+function safeAgentTask(data: DocumentData | undefined): AgentTaskDocument {
+  return {
+    ownerId: typeof data?.ownerId === 'string' ? data.ownerId : '',
+    repoId: typeof data?.repoId === 'string' ? data.repoId : '',
+    prompt: typeof data?.prompt === 'string' ? data.prompt : '',
+    threadId: typeof data?.threadId === 'string' ? data.threadId : null,
+    currentFilePath: typeof data?.currentFilePath === 'string' ? data.currentFilePath : null,
+    deepMode: data?.deepMode === true,
+    status: AGENT_TASK_STATUSES.includes(data?.status as AgentTaskStatus)
+      ? (data?.status as AgentTaskStatus)
+      : 'queued',
+    phase: typeof data?.phase === 'string' ? (data.phase as AgentTaskPhase) : 'queued',
+    currentStep: typeof data?.currentStep === 'string' ? data.currentStep : 'Queued',
+    queueWorkspaceId: typeof data?.queueWorkspaceId === 'string' ? data.queueWorkspaceId : '',
+    runToken: typeof data?.runToken === 'number' ? data.runToken : 0,
+    createdAtMs: typeof data?.createdAtMs === 'number' ? data.createdAtMs : Date.now(),
+    updatedAtMs: typeof data?.updatedAtMs === 'number' ? data.updatedAtMs : Date.now(),
+    startedAtMs: typeof data?.startedAtMs === 'number' ? data.startedAtMs : null,
+    completedAtMs: typeof data?.completedAtMs === 'number' ? data.completedAtMs : null,
+    cancelledAtMs: typeof data?.cancelledAtMs === 'number' ? data.cancelledAtMs : null,
+    failedAtMs: typeof data?.failedAtMs === 'number' ? data.failedAtMs : null,
+    cancelRequestedAtMs:
+      typeof data?.cancelRequestedAtMs === 'number' ? data.cancelRequestedAtMs : null,
+    pauseRequestedAtMs:
+      typeof data?.pauseRequestedAtMs === 'number' ? data.pauseRequestedAtMs : null,
+    currentPass: typeof data?.currentPass === 'number' ? data.currentPass : 1,
+    retryCount: typeof data?.retryCount === 'number' ? data.retryCount : 0,
+    eventCount: typeof data?.eventCount === 'number' ? data.eventCount : 0,
+    selectedFiles: Array.isArray(data?.selectedFiles)
+      ? data.selectedFiles.filter((value): value is string => typeof value === 'string')
+      : [],
+    inspectedFiles: Array.isArray(data?.inspectedFiles)
+      ? data.inspectedFiles.filter((value): value is string => typeof value === 'string')
+      : [],
+    dependencyFiles: Array.isArray(data?.dependencyFiles)
+      ? data.dependencyFiles.filter((value): value is string => typeof value === 'string')
+      : [],
+    filesTouched: Array.isArray(data?.filesTouched)
+      ? data.filesTouched.filter((value): value is string => typeof value === 'string')
+      : [],
+    diffCount: typeof data?.diffCount === 'number' ? data.diffCount : 0,
+    estimatedTokens: typeof data?.estimatedTokens === 'number' ? data.estimatedTokens : 0,
+    sessionId: typeof data?.sessionId === 'string' ? data.sessionId : null,
+    executionSummary:
+      typeof data?.executionSummary === 'string' ? data.executionSummary : null,
+    resultSummary: typeof data?.resultSummary === 'string' ? data.resultSummary : null,
+    errorMessage: typeof data?.errorMessage === 'string' ? data.errorMessage : null,
+    latestEventType:
+      typeof data?.latestEventType === 'string'
+        ? (data.latestEventType as AgentTaskEventType)
+        : null,
+    latestEventMessage:
+      typeof data?.latestEventMessage === 'string' ? data.latestEventMessage : null,
+    latestEventAtMs:
+      typeof data?.latestEventAtMs === 'number' ? data.latestEventAtMs : null,
+    latestValidationError:
+      typeof data?.latestValidationError === 'string' ? data.latestValidationError : null,
+    followUpPlan: isObject(data?.followUpPlan)
+      ? {
+          commitChanges: data.followUpPlan.commitChanges === true,
+          openPullRequest: data.followUpPlan.openPullRequest === true,
+          mergePullRequest: data.followUpPlan.mergePullRequest === true,
+          deployWorkflow: data.followUpPlan.deployWorkflow === true,
+          riskyOperation: data.followUpPlan.riskyOperation === true,
+        }
+      : {
+          commitChanges: false,
+          openPullRequest: false,
+          mergePullRequest: false,
+          deployWorkflow: false,
+          riskyOperation: false,
+        },
+    guardrails: isObject(data?.guardrails)
+      ? {
+          maxRuntimeMs:
+            typeof data.guardrails.maxRuntimeMs === 'number'
+              ? data.guardrails.maxRuntimeMs
+              : AGENT_TASK_MAX_RUNTIME_MS,
+          maxRetries:
+            typeof data.guardrails.maxRetries === 'number'
+              ? data.guardrails.maxRetries
+              : AGENT_TASK_MAX_RETRIES,
+          maxTokenBudget:
+            typeof data.guardrails.maxTokenBudget === 'number'
+              ? data.guardrails.maxTokenBudget
+              : AGENT_TASK_MAX_TOKEN_BUDGET_NORMAL,
+          maxFileTouchCount:
+            typeof data.guardrails.maxFileTouchCount === 'number'
+              ? data.guardrails.maxFileTouchCount
+              : AGENT_TASK_MAX_FILE_TOUCHES_NORMAL,
+        }
+      : buildAgentTaskGuardrails(data?.deepMode === true),
+    pendingApproval: isObject(data?.pendingApproval)
+      ? {
+          id:
+            typeof data.pendingApproval.id === 'string'
+              ? data.pendingApproval.id
+              : db.collection('_').doc().id,
+          type:
+            typeof data.pendingApproval.type === 'string'
+              ? (data.pendingApproval.type as AgentTaskApprovalType)
+              : 'apply_changes',
+          title:
+            typeof data.pendingApproval.title === 'string'
+              ? data.pendingApproval.title
+              : 'Approval required',
+          description:
+            typeof data.pendingApproval.description === 'string'
+              ? data.pendingApproval.description
+              : 'Review the next action before the agent continues.',
+          status:
+            data.pendingApproval.status === 'approved' ||
+            data.pendingApproval.status === 'rejected'
+              ? data.pendingApproval.status
+              : 'pending',
+          actionLabel:
+            typeof data.pendingApproval.actionLabel === 'string'
+              ? data.pendingApproval.actionLabel
+              : 'Approve',
+          cancelLabel:
+            typeof data.pendingApproval.cancelLabel === 'string'
+              ? data.pendingApproval.cancelLabel
+              : 'Reject',
+          payload: isObject(data.pendingApproval.payload)
+            ? (data.pendingApproval.payload as Record<string, unknown>)
+            : {},
+          createdAtMs:
+            typeof data.pendingApproval.createdAtMs === 'number'
+              ? data.pendingApproval.createdAtMs
+              : Date.now(),
+          resolvedAtMs:
+            typeof data.pendingApproval.resolvedAtMs === 'number'
+              ? data.pendingApproval.resolvedAtMs
+              : null,
+        }
+      : null,
+    metadata: isObject(data?.metadata) ? (data.metadata as Record<string, unknown>) : {},
+  };
+}
+
+async function appendAgentTaskEvent(params: {
+  ownerId: string;
+  taskId: string;
+  type: AgentTaskEventType;
+  step: string;
+  message: string;
+  status: AgentTaskStatus;
+  phase: AgentTaskPhase;
+  data?: Record<string, unknown>;
+}) {
+  const taskReference = agentTaskRef(params.ownerId, params.taskId);
+  const eventReference = agentTaskEventsCollection(params.ownerId, params.taskId).doc();
+  const now = Date.now();
+  await db.runTransaction(async transaction => {
+    const taskSnapshot = await transaction.get(taskReference);
+    if (!taskSnapshot.exists) {
+      return;
+    }
+    const task = safeAgentTask(taskSnapshot.data());
+    const nextSequence = task.eventCount + 1;
+    const eventPayload: AgentTaskEventDocument = {
+      type: params.type,
+      step: params.step,
+      message: params.message,
+      status: params.status,
+      phase: params.phase,
+      sequence: nextSequence,
+      createdAtMs: now,
+      data: params.data ?? {},
+    };
+    transaction.set(eventReference, eventPayload, { merge: true });
+    transaction.set(
+      taskReference,
+      {
+        eventCount: nextSequence,
+        latestEventType: params.type,
+        latestEventMessage: params.message,
+        latestEventAtMs: now,
+        updatedAtMs: now,
+      },
+      { merge: true },
+    );
+    if (task.status === 'running' || task.status === 'waiting_for_input') {
+      transaction.set(
+        workspaceLockRef(task.repoId),
+        {
+          ownerId: task.ownerId,
+          repoId: task.repoId,
+          taskId: params.taskId,
+          status: task.status,
+          updatedAtMs: now,
+          acquiredAtMs: task.startedAtMs ?? task.createdAtMs,
+        },
+        { merge: true },
+      );
+    }
+  });
+}
+
+async function releaseWorkspaceLockIfOwned(ownerId: string, repoId: string, taskId: string) {
+  await db.runTransaction(async transaction => {
+    const lockReference = workspaceLockRef(repoId);
+    const lockSnapshot = await transaction.get(lockReference);
+    if (!lockSnapshot.exists) {
+      return;
+    }
+    const lock = lockSnapshot.data() as { ownerId?: string; taskId?: string } | undefined;
+    if (lock?.ownerId === ownerId && lock?.taskId === taskId) {
+      transaction.delete(lockReference);
+    }
+  });
+}
+
+async function transitionAgentTaskToFinalState(params: {
+  ownerId: string;
+  taskId: string;
+  status: Extract<AgentTaskStatus, 'completed' | 'failed' | 'cancelled'>;
+  phase: Extract<AgentTaskPhase, 'completed' | 'failed' | 'cancelled'>;
+  step: string;
+  summary: string;
+  errorMessage?: string;
+  eventType: Extract<AgentTaskEventType, 'task_completed' | 'task_failed' | 'task_cancelled'>;
+}) {
+  const taskReference = agentTaskRef(params.ownerId, params.taskId);
+  const taskSnapshot = await taskReference.get();
+  if (!taskSnapshot.exists) {
+    return;
+  }
+  const task = safeAgentTask(taskSnapshot.data());
+  const now = Date.now();
+  await taskReference.set(
+    {
+      status: params.status,
+      phase: params.phase,
+      currentStep: params.step,
+      resultSummary: params.summary,
+      errorMessage: params.errorMessage ?? null,
+      completedAtMs: params.status === 'completed' ? now : task.completedAtMs ?? null,
+      failedAtMs: params.status === 'failed' ? now : task.failedAtMs ?? null,
+      cancelledAtMs: params.status === 'cancelled' ? now : task.cancelledAtMs ?? null,
+      pendingApproval: null,
+      pauseRequestedAtMs: null,
+      updatedAtMs: now,
+    },
+    { merge: true },
+  );
+  await releaseWorkspaceLockIfOwned(params.ownerId, task.repoId, params.taskId);
+  await appendAgentTaskEvent({
+    ownerId: params.ownerId,
+    taskId: params.taskId,
+    type: params.eventType,
+    step: params.step,
+    message: params.summary,
+    status: params.status,
+    phase: params.phase,
+  });
+  await promoteNextQueuedAgentTask(params.ownerId, task.repoId);
+}
+
+async function cancelAgentTaskNow(
+  ownerId: string,
+  taskId: string,
+  reason = 'Task cancelled.',
+) {
+  await transitionAgentTaskToFinalState({
+    ownerId,
+    taskId,
+    status: 'cancelled',
+    phase: 'cancelled',
+    step: 'Task cancelled',
+    summary: reason,
+    eventType: 'task_cancelled',
+  });
+}
+
+async function failAgentTaskNow(
+  ownerId: string,
+  taskId: string,
+  message: string,
+) {
+  await transitionAgentTaskToFinalState({
+    ownerId,
+    taskId,
+    status: 'failed',
+    phase: 'failed',
+    step: 'Task failed',
+    summary: message,
+    errorMessage: message,
+    eventType: 'task_failed',
+  });
+}
+
+async function completeAgentTaskNow(
+  ownerId: string,
+  taskId: string,
+  summary: string,
+) {
+  await transitionAgentTaskToFinalState({
+    ownerId,
+    taskId,
+    status: 'completed',
+    phase: 'completed',
+    step: 'Task completed',
+    summary,
+    eventType: 'task_completed',
+  });
+}
+
+async function putAgentTaskIntoApprovalState(params: {
+  ownerId: string;
+  taskId: string;
+  approval: AgentTaskPendingApproval;
+  step: string;
+  message: string;
+}) {
+  const taskReference = agentTaskRef(params.ownerId, params.taskId);
+  const taskSnapshot = await taskReference.get();
+  if (!taskSnapshot.exists) {
+    return;
+  }
+  const task = safeAgentTask(taskSnapshot.data());
+  const now = Date.now();
+  await db.runTransaction(async transaction => {
+    transaction.set(
+      taskReference,
+      {
+        status: 'waiting_for_input',
+        phase: 'awaiting_approval',
+        currentStep: params.step,
+        pendingApproval: params.approval,
+        pauseRequestedAtMs: null,
+        updatedAtMs: now,
+      },
+      { merge: true },
+    );
+    transaction.set(
+      agentTaskApprovalsCollection(params.ownerId, params.taskId).doc(params.approval.id),
+      {
+        ...params.approval,
+        createdAtMs: params.approval.createdAtMs,
+        updatedAtMs: now,
+      },
+      { merge: true },
+    );
+    transaction.set(
+      workspaceLockRef(task.repoId),
+      {
+        ownerId: task.ownerId,
+        repoId: task.repoId,
+        taskId: params.taskId,
+        status: 'waiting_for_input',
+        acquiredAtMs: task.startedAtMs ?? task.createdAtMs,
+        updatedAtMs: now,
+      },
+      { merge: true },
+    );
+  });
+  await appendAgentTaskEvent({
+    ownerId: params.ownerId,
+    taskId: params.taskId,
+    type: 'awaiting_approval',
+    step: params.step,
+    message: params.message,
+    status: 'waiting_for_input',
+    phase: 'awaiting_approval',
+    data: {
+      approvalType: params.approval.type,
+      approvalId: params.approval.id,
+    },
+  });
+}
+
+async function promoteNextQueuedAgentTask(ownerId: string, repoId: string) {
+  const candidates = await agentTaskCollection(ownerId)
+    .orderBy('createdAtMs', 'asc')
+    .limit(50)
+    .get();
+  const candidate = candidates.docs.find(document => {
+    const task = safeAgentTask(document.data());
+    return task.repoId === repoId && task.status === 'queued';
+  });
+  if (!candidate) {
+    return null;
+  }
+
+  const taskReference = candidate.ref;
+  const lockReference = workspaceLockRef(repoId);
+  const now = Date.now();
+  let started = false;
+  let runToken = 0;
+  await db.runTransaction(async transaction => {
+    const [taskSnapshot, lockSnapshot] = await Promise.all([
+      transaction.get(taskReference),
+      transaction.get(lockReference),
+    ]);
+    if (!taskSnapshot.exists) {
+      return;
+    }
+    const task = safeAgentTask(taskSnapshot.data());
+    if (task.status !== 'queued') {
+      return;
+    }
+    if (lockSnapshot.exists) {
+      const lock = lockSnapshot.data() as
+        | { taskId?: string; status?: AgentTaskStatus; updatedAtMs?: number; ownerId?: string }
+        | undefined;
+      const lockedTaskId = typeof lock?.taskId === 'string' ? lock.taskId : null;
+      if (lockedTaskId) {
+        const lockedTaskSnapshot = await transaction.get(agentTaskRef(ownerId, lockedTaskId));
+        const lockedTask = lockedTaskSnapshot.exists
+          ? safeAgentTask(lockedTaskSnapshot.data())
+          : null;
+        const lockIsStale =
+          lock?.status === 'running' &&
+          typeof lock?.updatedAtMs === 'number' &&
+          now - lock.updatedAtMs > AGENT_TASK_STALE_RUNNING_LOCK_MS;
+        if (
+          lockedTask &&
+          !isAgentTaskFinalStatus(lockedTask.status) &&
+          !(lockIsStale && lockedTask.status === 'running')
+        ) {
+          return;
+        }
+      }
+    }
+
+    runToken = task.runToken + 1;
+    transaction.set(
+      lockReference,
+      {
+        ownerId,
+        repoId,
+        taskId: taskReference.id,
+        status: 'running',
+        acquiredAtMs: task.startedAtMs ?? now,
+        updatedAtMs: now,
+      },
+      { merge: true },
+    );
+    transaction.set(
+      taskReference,
+      {
+        status: 'running',
+        phase: 'analyze_request',
+        currentStep: 'Analyzing request',
+        runToken,
+        startedAtMs: task.startedAtMs ?? now,
+        updatedAtMs: now,
+        cancelRequestedAtMs: null,
+      },
+      { merge: true },
+    );
+    started = true;
+  });
+
+  if (!started) {
+    return null;
+  }
+
+  await appendAgentTaskEvent({
+    ownerId,
+    taskId: taskReference.id,
+    type: 'task_started',
+    step: 'Analyzing request',
+    message: 'Agent picked up the next queued task for this workspace.',
+    status: 'running',
+    phase: 'analyze_request',
+  });
+  return { taskId: taskReference.id, runToken };
+}
+
+class AgentTaskStopError extends Error {
+  constructor(readonly kind: 'cancelled' | 'paused' | 'superseded') {
+    super(kind);
+  }
+}
+
+async function assertAgentTaskStillRunnable(ownerId: string, taskId: string, runToken: number) {
+  const snapshot = await agentTaskRef(ownerId, taskId).get();
+  if (!snapshot.exists) {
+    throw new AgentTaskStopError('superseded');
+  }
+  const task = safeAgentTask(snapshot.data());
+  if (task.status !== 'running' || task.runToken !== runToken) {
+    throw new AgentTaskStopError('superseded');
+  }
+  const now = Date.now();
+  if (task.cancelRequestedAtMs) {
+    await cancelAgentTaskNow(ownerId, taskId, 'Task cancelled before completion.');
+    throw new AgentTaskStopError('cancelled');
+  }
+  if (
+    typeof task.startedAtMs === 'number' &&
+    now - task.startedAtMs > task.guardrails.maxRuntimeMs
+  ) {
+    await failAgentTaskNow(ownerId, taskId, 'Task exceeded the maximum runtime.');
+    throw new AgentTaskStopError('superseded');
+  }
+  if (task.pauseRequestedAtMs) {
+    await putAgentTaskIntoApprovalState({
+      ownerId,
+      taskId,
+      approval: buildAgentTaskPendingApproval({
+        type: 'resume_task',
+        title: 'Resume task?',
+        description: 'The task was paused. Resume when you are ready to continue the current agent run.',
+        actionLabel: 'Resume',
+        cancelLabel: 'Cancel task',
+      }),
+      step: 'Task paused',
+      message: 'Task paused and is holding the workspace lock until you resume or cancel it.',
+    });
+    throw new AgentTaskStopError('paused');
+  }
+  return task;
 }
 
 function providerConnectionRef(ownerId: string, provider: GitProviderName) {
@@ -2004,12 +2805,14 @@ async function hydrateRepoExecutionContext(params: {
   prompt: string;
   currentFilePath?: string | null;
   deepMode: boolean;
+  observer?: RepoExecutionObserver;
 }) {
   const snapshot = await db
     .collection('repositories')
     .doc(params.repoId)
     .collection('files')
     .get();
+  await params.observer?.onRepoScanned?.({ fileCount: snapshot.docs.length });
   const files = snapshot.docs
     .map<RepoIndexFileInput | null>(document => {
       const data = document.data() as {
@@ -2079,6 +2882,10 @@ async function hydrateRepoExecutionContext(params: {
         contentPreview: truncate(loaded.content, 1600),
         sha: null,
       });
+      await params.observer?.onFileRead?.({
+        path,
+        source: loaded.source,
+      });
     } catch (error) {
       functions.logger.warn('repo_execution.load_candidate_failed', {
         repoId: params.repoId,
@@ -2106,6 +2913,11 @@ async function hydrateRepoExecutionContext(params: {
   const dependencyEntries = dependencyPaths
     .map(path => entries.find(entry => entry.path === path))
     .filter((entry): entry is RepoIndexEntry => Boolean(entry));
+  await params.observer?.onFilesSelected?.({
+    selectedFiles: selectedEntries.map(entry => entry.path),
+    dependencyFiles: dependencyEntries.map(entry => entry.path),
+    inspectedFiles: ranked.slice(0, params.deepMode ? 16 : 8).map(entry => entry.path),
+  });
 
   return {
     fileMap,
@@ -2148,7 +2960,7 @@ async function callRepoExecutionModel(params: {
           model,
           messages,
           temperature: 0.1,
-          maxOutput: params.mode === 'deep' ? 24_000 : 12_000,
+          maxOutput: repoExecutionMaxOutputTokens(model, params.mode),
         }),
       ),
     },
@@ -2199,6 +3011,7 @@ async function generateRepoExecutionSession(params: {
   prompt: string;
   currentFilePath?: string | null;
   deepMode: boolean;
+  observer?: RepoExecutionObserver;
 }) {
   const repo = await ensureRepositoryAccess(params.repoId, params.ownerId);
   const mode: RepoExecutionMode = params.deepMode ? 'deep' : 'normal';
@@ -2209,6 +3022,7 @@ async function generateRepoExecutionSession(params: {
     prompt: params.prompt,
     currentFilePath: params.currentFilePath,
     deepMode: params.deepMode,
+    observer: params.observer,
   });
 
   const maxCharsPerFile = params.deepMode ? 28_000 : 16_000;
@@ -2239,6 +3053,7 @@ async function generateRepoExecutionSession(params: {
     })),
   };
 
+  await params.observer?.onAiCalled?.({ attempt: 1, mode });
   let rawOutput = await callRepoExecutionModel({
     provider: 'openai',
     mode,
@@ -2251,6 +3066,11 @@ async function generateRepoExecutionSession(params: {
   );
 
   if (!validateRepoExecutionEdits(parsedEdits, preparedContext.fileMap, allowedPaths, maxFiles)) {
+    await params.observer?.onRetrying?.({
+      reason: 'Structured diff payload failed validation. Retrying with repair prompt.',
+      attempt: 2,
+    });
+    await params.observer?.onAiCalled?.({ attempt: 2, mode });
     rawOutput = await callRepoExecutionModel({
       provider: 'openai',
       mode,
@@ -2287,6 +3107,16 @@ async function generateRepoExecutionSession(params: {
       diffLines: buildDiffLines(beforeContent, edit.afterContent),
     };
   });
+  const estimatedTokens = Math.max(
+    params.deepMode ? 420 : 240,
+    Math.ceil(
+      (
+        params.prompt.length +
+        preparedContext.selectedEntries.reduce((sum, entry) => sum + entry.approxTokens * 4, 0) +
+        preparedContext.dependencyEntries.reduce((sum, entry) => sum + Math.floor(entry.approxTokens * 2.5), 0)
+      ) / 4,
+    ),
+  );
 
   const sessionRef = db
     .collection('repositories')
@@ -2304,6 +3134,7 @@ async function generateRepoExecutionSession(params: {
     ownerId: params.ownerId,
     prompt: params.prompt,
     mode,
+    estimatedTokens,
     summary: summarizeRepoExecution(parsedEdits),
     selectedFiles: preparedContext.selectedEntries.map(entry => entry.path),
     dependencyFiles: preparedContext.dependencyEntries.map(entry => entry.path),
@@ -2314,10 +3145,16 @@ async function generateRepoExecutionSession(params: {
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   });
+  await params.observer?.onDiffGenerated?.({
+    editCount: edits.length,
+    summary: summarizeRepoExecution(parsedEdits),
+    sessionId: sessionRef.id,
+  });
 
   return {
     sessionId: sessionRef.id,
     mode,
+    estimatedTokens,
     summary: summarizeRepoExecution(parsedEdits),
     selectedFiles: preparedContext.selectedEntries.map(entry => entry.path),
     dependencyFiles: preparedContext.dependencyEntries.map(entry => entry.path),
@@ -2416,6 +3253,906 @@ async function applyRepoExecutionSession(
     },
   );
   return appliedPaths;
+}
+
+async function validateAppliedRepoExecutionSession(
+  repoId: string,
+  sessionId: string,
+) {
+  const sessionSnapshot = await db
+    .collection('repositories')
+    .doc(repoId)
+    .collection('executionSessions')
+    .doc(sessionId)
+    .get();
+  if (!sessionSnapshot.exists) {
+    return {
+      ok: false,
+      mismatchedPaths: ['<missing session>'],
+    };
+  }
+  const session = sessionSnapshot.data() as {
+    edits?: Array<{
+      path?: string;
+      action?: RepoExecutionAction;
+      afterContent?: string;
+    }>;
+  };
+  const edits = Array.isArray(session.edits) ? session.edits : [];
+  const mismatchedPaths: string[] = [];
+  for (const edit of edits) {
+    const path = normalizeRepoExecutionPath(asString(edit.path, 'executionSession.edits.path'));
+    const action = (typeof edit.action === 'string' ? edit.action : 'modify') as RepoExecutionAction;
+    const expectedContent = typeof edit.afterContent === 'string' ? edit.afterContent : '';
+    const fileSnapshot = await db
+      .collection('repositories')
+      .doc(repoId)
+      .collection('files')
+      .doc(safeDocId(path))
+      .get();
+    const fileData = fileSnapshot.data() as
+      | { content?: string; isDeleted?: boolean }
+      | undefined;
+    if (action === 'delete') {
+      if (!(fileData?.isDeleted === true || !fileSnapshot.exists)) {
+        mismatchedPaths.push(path);
+      }
+      continue;
+    }
+    if ((fileData?.content ?? '') !== expectedContent) {
+      mismatchedPaths.push(path);
+    }
+  }
+  return {
+    ok: mismatchedPaths.length === 0,
+    mismatchedPaths,
+  };
+}
+
+function parsePullRequestNumber(value: unknown) {
+  if (typeof value === 'number' && Number.isInteger(value)) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (/^\d+$/.test(trimmed)) {
+      return Number.parseInt(trimmed, 10);
+    }
+  }
+  return null;
+}
+
+async function stageNextAgentFollowUpOrComplete(ownerId: string, taskId: string) {
+  const snapshot = await agentTaskRef(ownerId, taskId).get();
+  if (!snapshot.exists) {
+    return;
+  }
+  const task = safeAgentTask(snapshot.data());
+  const metadata = isObject(task.metadata) ? task.metadata : {};
+  if (task.followUpPlan.openPullRequest && metadata.pullRequestOpened !== true) {
+    await putAgentTaskIntoApprovalState({
+      ownerId,
+      taskId,
+      approval: buildAgentTaskPendingApproval({
+        type: 'open_pull_request',
+        title: 'Open a pull request?',
+        description:
+          'The agent has applied the workspace edits. Approve to create a branch, commit the working copy, and open a pull request.',
+        actionLabel: 'Open PR',
+        cancelLabel: 'Skip remote step',
+      }),
+      step: 'Awaiting approval to open a pull request',
+      message: 'Workspace edits are ready. Approve before the agent creates a branch and opens a pull request.',
+    });
+    return;
+  }
+  if (
+    task.followUpPlan.commitChanges &&
+    !task.followUpPlan.openPullRequest &&
+    metadata.commitCompleted !== true
+  ) {
+    await putAgentTaskIntoApprovalState({
+      ownerId,
+      taskId,
+      approval: buildAgentTaskPendingApproval({
+        type: 'commit_changes',
+        title: 'Commit workspace changes?',
+        description:
+          'The agent has applied the workspace edits. Approve to commit the current working copy to the remote repository.',
+        actionLabel: 'Commit changes',
+        cancelLabel: 'Skip remote step',
+      }),
+      step: 'Awaiting approval to commit changes',
+      message: 'Workspace edits are ready. Approve before the agent pushes a commit.',
+    });
+    return;
+  }
+  const pullRequestNumber = parsePullRequestNumber(metadata.pullRequestNumber);
+  if (
+    task.followUpPlan.mergePullRequest &&
+    pullRequestNumber != null &&
+    metadata.pullRequestMerged !== true
+  ) {
+    await putAgentTaskIntoApprovalState({
+      ownerId,
+      taskId,
+      approval: buildAgentTaskPendingApproval({
+        type: 'merge_pull_request',
+        title: 'Merge the pull request?',
+        description:
+          `A pull request is ready (#${pullRequestNumber}). Approve to merge it into the target branch.`,
+        actionLabel: 'Merge PR',
+        cancelLabel: 'Leave PR open',
+        payload: {
+          pullRequestNumber,
+        },
+      }),
+      step: 'Awaiting approval to merge the pull request',
+      message: `Pull request #${pullRequestNumber} is ready. Approve before the agent merges it.`,
+    });
+    return;
+  }
+  if (task.followUpPlan.deployWorkflow && metadata.deployTriggered !== true) {
+    await putAgentTaskIntoApprovalState({
+      ownerId,
+      taskId,
+      approval: buildAgentTaskPendingApproval({
+        type: 'deploy_workflow',
+        title: 'Deploy from this repo?',
+        description:
+          'Approve to dispatch the deployment workflow after the workspace edits are in place.',
+        actionLabel: 'Deploy',
+        cancelLabel: 'Skip deploy',
+      }),
+      step: 'Awaiting approval to deploy',
+      message: 'Workspace edits are ready. Approve before the agent dispatches the deploy workflow.',
+    });
+    return;
+  }
+
+  await completeAgentTaskNow(ownerId, taskId, summarizeAgentTaskResult(task));
+}
+
+async function executeAgentCommitFollowUp(
+  ownerId: string,
+  taskId: string,
+  task: AgentTaskDocument,
+) {
+  const repo = await ensureRepositoryAccess(task.repoId, ownerId);
+  const provider = repo.provider ?? 'github';
+  const tokenInfo = await resolveProviderToken(ownerId, provider);
+  if (!tokenInfo) {
+    throw new HttpsError(
+      'failed-precondition',
+      `No ${providerLabel(provider)} token configured for remote commit.`,
+    );
+  }
+  const fileChanges = await buildDraftFileChangesFromWorkingCopy(task.repoId);
+  if (fileChanges.length === 0) {
+    return {
+      remoteId: null,
+      remoteUrl: null,
+      summary: 'No working-copy changes were available to commit.',
+    };
+  }
+  const commitMessage =
+    `feat(agent): ${truncate(normalizeText(task.prompt), 72)}` || 'feat(agent): apply generated changes';
+  const result = await commitRemoteChanges(
+    provider,
+    tokenInfo.token,
+    {
+      owner: repo.owner ?? '',
+      name: repo.name ?? '',
+      remoteId: repo.remoteId ?? null,
+      defaultBranch: repo.defaultBranch,
+    },
+    repo.defaultBranch ?? 'main',
+    commitMessage,
+    fileChanges,
+    repo.apiBaseUrl ?? undefined,
+  );
+  return {
+    remoteId: result.remoteId ?? null,
+    remoteUrl: result.url ?? null,
+    summary: 'Committed the applied workspace changes to the remote repository.',
+  };
+}
+
+async function executeAgentPullRequestFollowUp(
+  ownerId: string,
+  taskId: string,
+  task: AgentTaskDocument,
+) {
+  const repo = await ensureRepositoryAccess(task.repoId, ownerId);
+  const provider = repo.provider ?? 'github';
+  const tokenInfo = await resolveProviderToken(ownerId, provider);
+  if (!tokenInfo) {
+    throw new HttpsError(
+      'failed-precondition',
+      `No ${providerLabel(provider)} token configured for pull request creation.`,
+    );
+  }
+  const fileChanges = await buildDraftFileChangesFromWorkingCopy(task.repoId);
+  if (fileChanges.length === 0) {
+    throw new HttpsError('failed-precondition', 'No working-copy changes were available to push.');
+  }
+  const branchName = `forgeai/agent-${taskId.slice(0, 8)}`;
+  await createRemoteBranch(
+    provider,
+    tokenInfo.token,
+    {
+      owner: repo.owner ?? '',
+      name: repo.name ?? '',
+      remoteId: repo.remoteId ?? null,
+      defaultBranch: repo.defaultBranch,
+    },
+    branchName,
+    repo.defaultBranch ?? 'main',
+    repo.apiBaseUrl ?? undefined,
+  );
+  const commitMessage =
+    `feat(agent): ${truncate(normalizeText(task.prompt), 72)}` || 'feat(agent): apply generated changes';
+  await commitRemoteChanges(
+    provider,
+    tokenInfo.token,
+    {
+      owner: repo.owner ?? '',
+      name: repo.name ?? '',
+      remoteId: repo.remoteId ?? null,
+      defaultBranch: repo.defaultBranch,
+    },
+    branchName,
+    commitMessage,
+    fileChanges,
+    repo.apiBaseUrl ?? undefined,
+  );
+  const prTitle = `Agent task: ${truncate(normalizeText(task.prompt), 88)}`;
+  const prDescription =
+    `Opened from CodeCatalystAI agent task ${taskId} after user approval.\n\n${task.executionSummary ?? task.prompt}`;
+  const result = await openRemotePullRequest(
+    provider,
+    tokenInfo.token,
+    {
+      owner: repo.owner ?? '',
+      name: repo.name ?? '',
+      remoteId: repo.remoteId ?? null,
+      defaultBranch: repo.defaultBranch,
+    },
+    branchName,
+    repo.defaultBranch,
+    prTitle,
+    prDescription,
+    repo.apiBaseUrl ?? undefined,
+  );
+  return {
+    remoteId: result.remoteId ?? null,
+    remoteUrl: result.url ?? null,
+    branchName,
+    pullRequestNumber: parsePullRequestNumber(result.remoteId),
+    summary: 'Created a branch, pushed the generated changes, and opened a pull request.',
+  };
+}
+
+async function executeAgentMergeFollowUp(
+  ownerId: string,
+  task: AgentTaskDocument,
+  pullRequestNumber: number,
+) {
+  const repo = await ensureRepositoryAccess(task.repoId, ownerId);
+  const provider = repo.provider ?? 'github';
+  const tokenInfo = await resolveProviderToken(ownerId, provider);
+  if (!tokenInfo) {
+    throw new HttpsError(
+      'failed-precondition',
+      `No ${providerLabel(provider)} token configured for merge execution.`,
+    );
+  }
+  const result = await mergeRemotePullRequest(
+    provider,
+    tokenInfo.token,
+    {
+      owner: repo.owner ?? '',
+      name: repo.name ?? '',
+      remoteId: repo.remoteId ?? null,
+    },
+    pullRequestNumber,
+    'merge',
+    repo.apiBaseUrl ?? undefined,
+  );
+  return {
+    remoteUrl: result.url ?? null,
+    summary: `Merged pull request #${pullRequestNumber}.`,
+  };
+}
+
+async function executeAgentDeployFollowUp(
+  ownerId: string,
+  task: AgentTaskDocument,
+) {
+  const repo = await ensureRepositoryAccess(task.repoId, ownerId);
+  const provider = repo.provider ?? 'github';
+  const tokenInfo = await resolveProviderToken(ownerId, provider);
+  if (!tokenInfo) {
+    throw new HttpsError(
+      'failed-precondition',
+      `No ${providerLabel(provider)} token configured for deployment.`,
+    );
+  }
+  const workflowName = 'deploy-functions.yml';
+  const result = await triggerCheckExecution(
+    provider,
+    tokenInfo.token,
+    {
+      owner: repo.owner ?? '',
+      name: repo.name ?? '',
+      remoteId: repo.remoteId ?? null,
+      defaultBranch: repo.defaultBranch,
+    },
+    workflowName,
+    repo.defaultBranch ?? 'main',
+    {},
+    repo.apiBaseUrl ?? undefined,
+  );
+  return {
+    remoteId: result.remoteId ?? null,
+    remoteUrl: result.logsUrl ?? null,
+    summary: `Dispatched ${workflowName} for ${repo.fullName ?? task.repoId}.`,
+  };
+}
+
+async function resolveApprovedAgentTaskContinuation(
+  ownerId: string,
+  taskId: string,
+  task: AgentTaskDocument,
+  approval: AgentTaskPendingApproval,
+) {
+  const taskReference = agentTaskRef(ownerId, taskId);
+  const now = Date.now();
+  switch (approval.type) {
+    case 'resume_task': {
+      await taskReference.set(
+        {
+          pendingApproval: null,
+          phase: 'analyze_request',
+          currentStep: 'Resuming task',
+          currentPass: task.currentPass + 1,
+          updatedAtMs: now,
+        },
+        { merge: true },
+      );
+      return;
+    }
+    case 'apply_changes': {
+      await appendAgentTaskEvent({
+        ownerId,
+        taskId,
+        type: 'task_resumed',
+        step: 'Applying approved edits',
+        message: 'Approval received. Applying the generated edits to the working copy.',
+        status: 'running',
+        phase: 'apply_edits',
+      });
+      const sessionId = asOptionalString(task.sessionId);
+      if (!sessionId) {
+        throw new HttpsError('failed-precondition', 'Task has no execution session to apply.');
+      }
+      await taskReference.set(
+        {
+          pendingApproval: null,
+          phase: 'apply_edits',
+          currentStep: 'Applying approved edits',
+          updatedAtMs: now,
+        },
+        { merge: true },
+      );
+      const appliedPaths = await applyRepoExecutionSession(ownerId, task.repoId, sessionId);
+      await taskReference.set(
+        {
+          filesTouched: appliedPaths,
+          metadata: {
+            ...(isObject(task.metadata) ? task.metadata : {}),
+            appliedChanges: true,
+          },
+          updatedAtMs: Date.now(),
+        },
+        { merge: true },
+      );
+      await appendAgentTaskEvent({
+        ownerId,
+        taskId,
+        type: 'edits_applied',
+        step: 'Working copy updated',
+        message: `Applied ${appliedPaths.length} file change${appliedPaths.length === 1 ? '' : 's'} to the working copy.`,
+        status: 'running',
+        phase: 'apply_edits',
+        data: {
+          filesTouched: appliedPaths,
+        },
+      });
+      await taskReference.set(
+        {
+          phase: 'validate',
+          currentStep: 'Validating applied edits',
+          updatedAtMs: Date.now(),
+        },
+        { merge: true },
+      );
+      await appendAgentTaskEvent({
+        ownerId,
+        taskId,
+        type: 'validation_started',
+        step: 'Validating applied edits',
+        message: 'Verifying that the working copy matches the approved diff.',
+        status: 'running',
+        phase: 'validate',
+      });
+      const validation = await validateAppliedRepoExecutionSession(task.repoId, sessionId);
+      if (!validation.ok) {
+        const message =
+          `Working-copy validation failed for ${validation.mismatchedPaths.join(', ')}.`;
+        await taskReference.set(
+          {
+            latestValidationError: message,
+            updatedAtMs: Date.now(),
+          },
+          { merge: true },
+        );
+        await appendAgentTaskEvent({
+          ownerId,
+          taskId,
+          type: 'validation_failed',
+          step: 'Validation failed',
+          message,
+          status: 'running',
+          phase: 'validate',
+          data: {
+            mismatchedPaths: validation.mismatchedPaths,
+          },
+        });
+        await failAgentTaskNow(ownerId, taskId, message);
+        return;
+      }
+      await stageNextAgentFollowUpOrComplete(ownerId, taskId);
+      return;
+    }
+    case 'commit_changes': {
+      await appendAgentTaskEvent({
+        ownerId,
+        taskId,
+        type: 'remote_action_started',
+        step: 'Committing workspace changes',
+        message: 'Creating a remote commit from the approved working copy.',
+        status: 'running',
+        phase: 'follow_up',
+      });
+      const result = await executeAgentCommitFollowUp(ownerId, taskId, task);
+      await taskReference.set(
+        {
+          pendingApproval: null,
+          metadata: {
+            ...(isObject(task.metadata) ? task.metadata : {}),
+            commitCompleted: true,
+            commitRemoteId: result.remoteId,
+            commitRemoteUrl: result.remoteUrl,
+          },
+          resultSummary: result.summary,
+          updatedAtMs: Date.now(),
+        },
+        { merge: true },
+      );
+      await appendAgentTaskEvent({
+        ownerId,
+        taskId,
+        type: 'remote_action_completed',
+        step: 'Remote commit created',
+        message: result.summary,
+        status: 'running',
+        phase: 'follow_up',
+        data: {
+          remoteUrl: result.remoteUrl,
+          remoteId: result.remoteId,
+        },
+      });
+      await stageNextAgentFollowUpOrComplete(ownerId, taskId);
+      return;
+    }
+    case 'open_pull_request': {
+      await appendAgentTaskEvent({
+        ownerId,
+        taskId,
+        type: 'remote_action_started',
+        step: 'Opening a pull request',
+        message: 'Creating a branch, pushing the approved working copy, and opening a pull request.',
+        status: 'running',
+        phase: 'follow_up',
+      });
+      const result = await executeAgentPullRequestFollowUp(ownerId, taskId, task);
+      await taskReference.set(
+        {
+          pendingApproval: null,
+          metadata: {
+            ...(isObject(task.metadata) ? task.metadata : {}),
+            commitCompleted: true,
+            pullRequestOpened: true,
+            pullRequestNumber: result.pullRequestNumber,
+            pullRequestRemoteId: result.remoteId,
+            pullRequestUrl: result.remoteUrl,
+            branchName: result.branchName,
+          },
+          resultSummary: result.summary,
+          updatedAtMs: Date.now(),
+        },
+        { merge: true },
+      );
+      await appendAgentTaskEvent({
+        ownerId,
+        taskId,
+        type: 'remote_action_completed',
+        step: 'Pull request opened',
+        message: result.summary,
+        status: 'running',
+        phase: 'follow_up',
+        data: {
+          remoteUrl: result.remoteUrl,
+          branchName: result.branchName,
+          pullRequestNumber: result.pullRequestNumber,
+        },
+      });
+      await stageNextAgentFollowUpOrComplete(ownerId, taskId);
+      return;
+    }
+    case 'merge_pull_request': {
+      const pullRequestNumber = parsePullRequestNumber(
+        approval.payload.pullRequestNumber ??
+          (isObject(task.metadata) ? task.metadata.pullRequestNumber : null),
+      );
+      if (pullRequestNumber == null) {
+        throw new HttpsError(
+          'failed-precondition',
+          'No pull request number is available for merge.',
+        );
+      }
+      await appendAgentTaskEvent({
+        ownerId,
+        taskId,
+        type: 'remote_action_started',
+        step: 'Merging pull request',
+        message: `Merging pull request #${pullRequestNumber}.`,
+        status: 'running',
+        phase: 'follow_up',
+      });
+      const result = await executeAgentMergeFollowUp(ownerId, task, pullRequestNumber);
+      await taskReference.set(
+        {
+          pendingApproval: null,
+          metadata: {
+            ...(isObject(task.metadata) ? task.metadata : {}),
+            pullRequestMerged: true,
+            mergeRemoteUrl: result.remoteUrl,
+          },
+          resultSummary: result.summary,
+          updatedAtMs: Date.now(),
+        },
+        { merge: true },
+      );
+      await appendAgentTaskEvent({
+        ownerId,
+        taskId,
+        type: 'remote_action_completed',
+        step: 'Pull request merged',
+        message: result.summary,
+        status: 'running',
+        phase: 'follow_up',
+        data: {
+          remoteUrl: result.remoteUrl,
+          pullRequestNumber,
+        },
+      });
+      await stageNextAgentFollowUpOrComplete(ownerId, taskId);
+      return;
+    }
+    case 'deploy_workflow': {
+      await appendAgentTaskEvent({
+        ownerId,
+        taskId,
+        type: 'remote_action_started',
+        step: 'Dispatching deploy workflow',
+        message: 'Triggering the deployment workflow after user approval.',
+        status: 'running',
+        phase: 'follow_up',
+      });
+      const result = await executeAgentDeployFollowUp(ownerId, task);
+      await taskReference.set(
+        {
+          pendingApproval: null,
+          metadata: {
+            ...(isObject(task.metadata) ? task.metadata : {}),
+            deployTriggered: true,
+            deployRemoteId: result.remoteId,
+            deployRemoteUrl: result.remoteUrl,
+          },
+          resultSummary: result.summary,
+          updatedAtMs: Date.now(),
+        },
+        { merge: true },
+      );
+      await appendAgentTaskEvent({
+        ownerId,
+        taskId,
+        type: 'remote_action_completed',
+        step: 'Deploy workflow queued',
+        message: result.summary,
+        status: 'running',
+        phase: 'follow_up',
+        data: {
+          remoteUrl: result.remoteUrl,
+          remoteId: result.remoteId,
+        },
+      });
+      await stageNextAgentFollowUpOrComplete(ownerId, taskId);
+      return;
+    }
+    case 'risky_operation': {
+      await completeAgentTaskNow(
+        ownerId,
+        taskId,
+        'Risky operation approval was acknowledged. Continue from the existing repo controls for any destructive remote step.',
+      );
+      return;
+    }
+  }
+}
+
+async function processAgentTaskRun(ownerId: string, taskId: string, runToken: number) {
+  let task = await assertAgentTaskStillRunnable(ownerId, taskId, runToken);
+  const taskReference = agentTaskRef(ownerId, taskId);
+  const pendingApproval = task.pendingApproval;
+  if (pendingApproval && pendingApproval.status !== 'pending') {
+    if (pendingApproval.status === 'rejected') {
+      if (pendingApproval.type === 'apply_changes' || pendingApproval.type === 'resume_task') {
+        await cancelAgentTaskNow(
+          ownerId,
+          taskId,
+          pendingApproval.type === 'apply_changes'
+            ? 'Task cancelled after the proposed diff was rejected.'
+            : 'Task cancelled while paused.',
+        );
+        return;
+      }
+      await taskReference.set(
+        {
+          pendingApproval: null,
+          updatedAtMs: Date.now(),
+        },
+        { merge: true },
+      );
+      await completeAgentTaskNow(
+        ownerId,
+        taskId,
+        'Remote follow-up step was skipped after rejection. Workspace edits remain available in the app.',
+      );
+      return;
+    }
+    await resolveApprovedAgentTaskContinuation(ownerId, taskId, task, pendingApproval);
+    return;
+  }
+
+  await taskReference.set(
+    {
+      phase: 'inspect_repo',
+      currentStep: 'Inspecting workspace',
+      currentPass: task.currentPass + 1,
+      updatedAtMs: Date.now(),
+    },
+    { merge: true },
+  );
+  task = await assertAgentTaskStillRunnable(ownerId, taskId, runToken);
+
+  const observed = {
+    selectedFiles: [] as string[],
+    dependencyFiles: [] as string[],
+    inspectedFiles: [] as string[],
+  };
+  const session = await generateRepoExecutionSession({
+    ownerId,
+    repoId: task.repoId,
+    prompt: task.prompt,
+    currentFilePath: task.currentFilePath ?? undefined,
+    deepMode: task.deepMode,
+    observer: {
+      onRepoScanned: async details => {
+        await appendAgentTaskEvent({
+          ownerId,
+          taskId,
+          type: 'repo_scanned',
+          step: 'Indexed repository snapshot',
+          message: `Indexed ${details.fileCount} repository file${details.fileCount === 1 ? '' : 's'}.`,
+          status: 'running',
+          phase: 'inspect_repo',
+          data: {
+            fileCount: details.fileCount,
+          },
+        });
+      },
+      onFilesSelected: async details => {
+        observed.selectedFiles = details.selectedFiles;
+        observed.dependencyFiles = details.dependencyFiles;
+        observed.inspectedFiles = details.inspectedFiles;
+        await appendAgentTaskEvent({
+          ownerId,
+          taskId,
+          type: 'files_selected',
+          step: 'Selected relevant files',
+          message: `Selected ${details.selectedFiles.length} file${details.selectedFiles.length === 1 ? '' : 's'} for the agent pass.`,
+          status: 'running',
+          phase: 'inspect_repo',
+          data: {
+            selectedFiles: details.selectedFiles,
+            dependencyFiles: details.dependencyFiles,
+            inspectedFiles: details.inspectedFiles,
+          },
+        });
+      },
+      onFileRead: async details => {
+        await appendAgentTaskEvent({
+          ownerId,
+          taskId,
+          type: 'file_read',
+          step: 'Loaded file content',
+          message: `Loaded ${details.path} from ${details.source}.`,
+          status: 'running',
+          phase: 'inspect_repo',
+          data: {
+            path: details.path,
+            source: details.source,
+          },
+        });
+      },
+      onAiCalled: async details => {
+        await appendAgentTaskEvent({
+          ownerId,
+          taskId,
+          type: 'ai_called',
+          step: 'Calling model',
+          message:
+            details.attempt === 1
+              ? 'Calling the model to generate the first draft diff.'
+              : 'Calling the model again with repair instructions.',
+          status: 'running',
+          phase: 'generate_diff',
+          data: {
+            attempt: details.attempt,
+            mode: details.mode,
+          },
+        });
+      },
+      onRetrying: async details => {
+        await appendAgentTaskEvent({
+          ownerId,
+          taskId,
+          type: 'retrying',
+          step: 'Retrying generation',
+          message: details.reason,
+          status: 'running',
+          phase: 'generate_diff',
+          data: {
+            attempt: details.attempt,
+          },
+        });
+      },
+      onDiffGenerated: async details => {
+        await appendAgentTaskEvent({
+          ownerId,
+          taskId,
+          type: 'diff_generated',
+          step: 'Generated reviewable diff',
+          message: `Prepared ${details.editCount} reviewable file change${details.editCount === 1 ? '' : 's'}.`,
+          status: 'running',
+          phase: 'generate_diff',
+          data: {
+            editCount: details.editCount,
+            summary: details.summary,
+            sessionId: details.sessionId,
+          },
+        });
+      },
+    },
+  });
+
+  task = await assertAgentTaskStillRunnable(ownerId, taskId, runToken);
+  await taskReference.set(
+    {
+      phase: 'validate',
+      currentStep: 'Validating generated diff',
+      sessionId: session.sessionId,
+      executionSummary: session.summary,
+      selectedFiles: observed.selectedFiles.length > 0 ? observed.selectedFiles : session.selectedFiles,
+      dependencyFiles:
+        observed.dependencyFiles.length > 0
+          ? observed.dependencyFiles
+          : session.dependencyFiles,
+      inspectedFiles:
+        observed.inspectedFiles.length > 0
+          ? observed.inspectedFiles
+          : session.selectedFiles,
+      filesTouched: session.edits.map(edit => edit.path),
+      diffCount: session.edits.length,
+      estimatedTokens: session.estimatedTokens,
+      updatedAtMs: Date.now(),
+    },
+    { merge: true },
+  );
+  await appendAgentTaskEvent({
+    ownerId,
+    taskId,
+    type: 'validation_started',
+    step: 'Validating generated diff',
+    message: 'Checking the proposed diff against agent guardrails.',
+    status: 'running',
+    phase: 'validate',
+    data: {
+      diffCount: session.edits.length,
+      estimatedTokens: session.estimatedTokens,
+    },
+  });
+
+  const validationErrors: string[] = [];
+  if (session.edits.length > task.guardrails.maxFileTouchCount) {
+    validationErrors.push(
+      `Diff touches ${session.edits.length} files, exceeding the limit of ${task.guardrails.maxFileTouchCount}.`,
+    );
+  }
+  if (session.estimatedTokens > task.guardrails.maxTokenBudget) {
+    validationErrors.push(
+      `Estimated token usage (${session.estimatedTokens}) exceeds the task budget of ${task.guardrails.maxTokenBudget}.`,
+    );
+  }
+  if (validationErrors.length > 0) {
+    const message = validationErrors.join(' ');
+    await taskReference.set(
+      {
+        latestValidationError: message,
+        updatedAtMs: Date.now(),
+      },
+      { merge: true },
+    );
+    await appendAgentTaskEvent({
+      ownerId,
+      taskId,
+      type: 'validation_failed',
+      step: 'Validation failed',
+      message,
+      status: 'running',
+      phase: 'validate',
+      data: {
+        errors: validationErrors,
+      },
+    });
+    await failAgentTaskNow(ownerId, taskId, message);
+    return;
+  }
+
+  const riskySuffix = task.followUpPlan.riskyOperation
+    ? ' The original prompt included a risky operation request, so the agent is pausing for approval before writing anything.'
+    : '';
+  await putAgentTaskIntoApprovalState({
+    ownerId,
+    taskId,
+    approval: buildAgentTaskPendingApproval({
+      type: 'apply_changes',
+      title: 'Apply the generated edits?',
+      description:
+        `The agent prepared ${session.edits.length} file change${session.edits.length === 1 ? '' : 's'} across the working copy. Review the diff before applying it.${riskySuffix}`,
+      actionLabel: 'Apply edits',
+      cancelLabel: 'Reject diff',
+      payload: {
+        sessionId: session.sessionId,
+        diffCount: session.edits.length,
+      },
+    }),
+    step: 'Awaiting approval to apply edits',
+    message: 'Review the generated diff. The workspace stays locked until you approve, reject, or cancel this task.',
+  });
 }
 
 async function buildDraftFileChangesFromWorkingCopy(repoId: string) {
@@ -5401,6 +7138,294 @@ export const applyRepoExecution = onCall(GIT_CALLABLE_OPTIONS, async request => 
     appliedPaths,
   };
 });
+
+export const enqueueAgentTask = onCall(GIT_AND_AI_CALLABLE_OPTIONS, async request => {
+  const ownerId = requireAuth(request);
+  const data = (request.data ?? {}) as Partial<EnqueueAgentTaskData>;
+  const repoId = asString(data.repoId, 'repoId');
+  const prompt = asString(data.prompt, 'prompt');
+  const deepMode = data.deepMode === true;
+  await ensureRepositoryAccess(repoId, ownerId);
+
+  const now = Date.now();
+  const taskReference = agentTaskCollection(ownerId).doc();
+  const task: AgentTaskDocument = {
+    ownerId,
+    repoId,
+    prompt,
+    threadId: asOptionalString(data.threadId) ?? null,
+    currentFilePath: asOptionalString(data.currentFilePath) ?? null,
+    deepMode,
+    status: 'queued',
+    phase: 'queued',
+    currentStep: 'Queued',
+    queueWorkspaceId: repoId,
+    runToken: 0,
+    createdAtMs: now,
+    updatedAtMs: now,
+    startedAtMs: null,
+    completedAtMs: null,
+    cancelledAtMs: null,
+    failedAtMs: null,
+    cancelRequestedAtMs: null,
+    pauseRequestedAtMs: null,
+    currentPass: 0,
+    retryCount: 0,
+    eventCount: 0,
+    selectedFiles: [],
+    inspectedFiles: [],
+    dependencyFiles: [],
+    filesTouched: [],
+    diffCount: 0,
+    estimatedTokens: 0,
+    sessionId: null,
+    executionSummary: null,
+    resultSummary: null,
+    errorMessage: null,
+    latestEventType: null,
+    latestEventMessage: null,
+    latestEventAtMs: null,
+    latestValidationError: null,
+    followUpPlan: inferAgentFollowUpPlan(prompt),
+    guardrails: buildAgentTaskGuardrails(deepMode),
+    pendingApproval: null,
+    metadata: {},
+  };
+
+  await taskReference.set(task, { merge: true });
+  await appendAgentTaskEvent({
+    ownerId,
+    taskId: taskReference.id,
+    type: 'task_created',
+    step: 'Task created',
+    message: 'Agent task created and added to the workspace queue.',
+    status: 'queued',
+    phase: 'queued',
+    data: {
+      repoId,
+      promptPreview: truncate(prompt, 140),
+      deepMode,
+    },
+  });
+  await writeActivityEntry(
+    ownerId,
+    'ai',
+    taskReference.id,
+    `Queued agent task for ${repoId}.`,
+    {
+      repoId,
+      promptPreview: truncate(prompt, 140),
+      deepMode,
+    },
+  );
+  const promotion = await promoteNextQueuedAgentTask(ownerId, repoId);
+  return {
+    taskId: taskReference.id,
+    status: promotion?.taskId === taskReference.id ? 'running' : 'queued',
+  };
+});
+
+export const cancelAgentTask = onCall(GIT_CALLABLE_OPTIONS, async request => {
+  const ownerId = requireAuth(request);
+  const data = (request.data ?? {}) as Partial<AgentTaskControlData>;
+  const taskId = asString(data.taskId, 'taskId');
+  const taskSnapshot = await agentTaskRef(ownerId, taskId).get();
+  if (!taskSnapshot.exists) {
+    throw new HttpsError('not-found', 'Agent task not found.');
+  }
+  const task = safeAgentTask(taskSnapshot.data());
+  if (isAgentTaskFinalStatus(task.status)) {
+    return { taskId, status: task.status };
+  }
+  if (task.status === 'queued' || task.status === 'waiting_for_input') {
+    await cancelAgentTaskNow(
+      ownerId,
+      taskId,
+      task.status === 'queued'
+        ? 'Queued task removed before execution.'
+        : 'Task cancelled while waiting for input.',
+    );
+    return { taskId, status: 'cancelled' };
+  }
+  const now = Date.now();
+  await agentTaskRef(ownerId, taskId).set(
+    {
+      cancelRequestedAtMs: now,
+      currentStep: 'Cancellation requested',
+      updatedAtMs: now,
+    },
+    { merge: true },
+  );
+  await appendAgentTaskEvent({
+    ownerId,
+    taskId,
+    type: 'task_cancel_requested',
+    step: 'Cancellation requested',
+    message: 'Cancellation requested. The agent will stop at the next safe checkpoint.',
+    status: 'running',
+    phase: task.phase,
+  });
+  return { taskId, status: 'running', cancellationRequested: true };
+});
+
+export const pauseAgentTask = onCall(GIT_CALLABLE_OPTIONS, async request => {
+  const ownerId = requireAuth(request);
+  const data = (request.data ?? {}) as Partial<AgentTaskControlData>;
+  const taskId = asString(data.taskId, 'taskId');
+  const taskSnapshot = await agentTaskRef(ownerId, taskId).get();
+  if (!taskSnapshot.exists) {
+    throw new HttpsError('not-found', 'Agent task not found.');
+  }
+  const task = safeAgentTask(taskSnapshot.data());
+  if (task.status !== 'running') {
+    return { taskId, status: task.status };
+  }
+  const now = Date.now();
+  await agentTaskRef(ownerId, taskId).set(
+    {
+      pauseRequestedAtMs: now,
+      currentStep: 'Pause requested',
+      updatedAtMs: now,
+    },
+    { merge: true },
+  );
+  await appendAgentTaskEvent({
+    ownerId,
+    taskId,
+    type: 'task_paused',
+    step: 'Pause requested',
+    message: 'Pause requested. The agent will pause at the next safe checkpoint.',
+    status: 'running',
+    phase: task.phase,
+  });
+  return { taskId, status: 'running', pauseRequested: true };
+});
+
+export const resolveAgentTaskApproval = onCall(GIT_CALLABLE_OPTIONS, async request => {
+  const ownerId = requireAuth(request);
+  const data = (request.data ?? {}) as Partial<ResolveAgentTaskApprovalData>;
+  const taskId = asString(data.taskId, 'taskId');
+  const decision = asEnum(data.decision, 'decision', ['approved', 'rejected'] as const);
+  const taskReference = agentTaskRef(ownerId, taskId);
+  const taskSnapshot = await taskReference.get();
+  if (!taskSnapshot.exists) {
+    throw new HttpsError('not-found', 'Agent task not found.');
+  }
+  const task = safeAgentTask(taskSnapshot.data());
+  const approval = task.pendingApproval;
+  if (task.status !== 'waiting_for_input' || approval == null) {
+    throw new HttpsError('failed-precondition', 'Agent task is not awaiting approval.');
+  }
+
+  const now = Date.now();
+  const resolvedApproval: AgentTaskPendingApproval = {
+    ...approval,
+    status: decision,
+    resolvedAtMs: now,
+  };
+  await db.runTransaction(async transaction => {
+    transaction.set(
+      taskReference,
+      {
+        status: 'running',
+        phase: approval.type === 'apply_changes' ? 'apply_edits' : 'follow_up',
+        currentStep:
+          decision === 'approved' ? 'Resuming after approval' : 'Processing rejection',
+        pendingApproval: resolvedApproval,
+        runToken: task.runToken + 1,
+        pauseRequestedAtMs: null,
+        updatedAtMs: now,
+      },
+      { merge: true },
+    );
+    transaction.set(
+      agentTaskApprovalsCollection(ownerId, taskId).doc(approval.id),
+      {
+        ...resolvedApproval,
+        updatedAtMs: now,
+      },
+      { merge: true },
+    );
+    transaction.set(
+      workspaceLockRef(task.repoId),
+      {
+        ownerId,
+        repoId: task.repoId,
+        taskId,
+        status: 'running',
+        acquiredAtMs: task.startedAtMs ?? task.createdAtMs,
+        updatedAtMs: now,
+      },
+      { merge: true },
+    );
+  });
+  await appendAgentTaskEvent({
+    ownerId,
+    taskId,
+    type: 'task_resumed',
+    step: decision === 'approved' ? 'Approval granted' : 'Approval rejected',
+    message:
+      decision === 'approved'
+        ? `Approval granted for ${approval.type}. The agent is resuming.`
+        : `Approval rejected for ${approval.type}. The agent is resolving the task.`,
+    status: 'running',
+    phase: approval.type === 'apply_changes' ? 'apply_edits' : 'follow_up',
+    data: {
+      approvalType: approval.type,
+      decision,
+    },
+  });
+  return {
+    taskId,
+    status: 'running',
+    decision,
+  };
+});
+
+export const runAgentTask = onDocumentWritten(
+  {
+    ...AGENT_TASK_RUNTIME_OPTIONS,
+    document: 'users/{ownerId}/agentTasks/{taskId}',
+  },
+  async event => {
+    const afterSnapshot = event.data?.after;
+    if (!afterSnapshot?.exists) {
+      return;
+    }
+    const afterTask = safeAgentTask(afterSnapshot.data());
+    if (afterTask.status !== 'running') {
+      return;
+    }
+    const beforeSnapshot = event.data?.before;
+    const beforeRunToken =
+      beforeSnapshot?.exists === true
+        ? safeAgentTask(beforeSnapshot.data()).runToken
+        : -1;
+    if (afterTask.runToken <= beforeRunToken) {
+      return;
+    }
+
+    try {
+      await processAgentTaskRun(event.params.ownerId, event.params.taskId, afterTask.runToken);
+    } catch (error) {
+      if (error instanceof AgentTaskStopError) {
+        return;
+      }
+      const normalizedError = normalizeError(error);
+      functions.logger.error('agent_task.process.failed', {
+        ownerId: event.params.ownerId,
+        taskId: event.params.taskId,
+        errorCode: normalizedError.code,
+        errorMessage: normalizedError.message,
+      });
+      await failAgentTaskNow(
+        event.params.ownerId,
+        event.params.taskId,
+        normalizedError.message,
+      );
+    }
+  },
+);
 
 export const loadRepositoryFile = onCall(GIT_CALLABLE_OPTIONS, async request => {
   const startedAt = Date.now();

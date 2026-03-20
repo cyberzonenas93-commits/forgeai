@@ -8,6 +8,7 @@ import '../../../shared/forge_user_friendly_error.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../auth/domain/auth_state.dart';
 import '../data/forge_workspace_repository.dart';
+import '../domain/forge_agent_entities.dart';
 import '../domain/forge_workspace_entities.dart';
 import '../domain/forge_workspace_state.dart';
 
@@ -44,6 +45,8 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
   StreamSubscription<List<ForgeTokenLog>>? _tokenLogsSubscription;
   StreamSubscription<List<ForgeFileNode>>? _filesSubscription;
   StreamSubscription<List<ForgePromptThread>>? _promptThreadsSubscription;
+  StreamSubscription<List<ForgeAgentTask>>? _agentTasksSubscription;
+  StreamSubscription<List<ForgeAgentTaskEvent>>? _agentTaskEventsSubscription;
   Timer? _repositoryAutoSyncTimer;
   bool _isAutoSyncingRepositories = false;
 
@@ -82,6 +85,18 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
     return null;
   }
 
+  ForgeAgentTask? _findAgentTaskById(String? taskId) {
+    if (taskId == null) {
+      return null;
+    }
+    for (final task in value.agentTasks) {
+      if (task.id == taskId) {
+        return task;
+      }
+    }
+    return null;
+  }
+
   Future<void> _persistPromptThread(ForgePromptThread thread) async {
     final repository = _repository;
     final ownerId = _boundOwnerId;
@@ -89,6 +104,54 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
       return;
     }
     await repository.savePromptThread(ownerId: ownerId, thread: thread);
+  }
+
+  Future<void> _bindAgentTaskEvents() async {
+    await _agentTaskEventsSubscription?.cancel();
+    final repository = _repository;
+    final ownerId = _boundOwnerId;
+    final selectedTaskId = value.selectedAgentTaskId;
+    if (repository == null || ownerId == null || selectedTaskId == null) {
+      value = value.copyWith(agentTaskEvents: const <ForgeAgentTaskEvent>[]);
+      return;
+    }
+    _agentTaskEventsSubscription = repository
+        .watchAgentTaskEvents(ownerId: ownerId, taskId: selectedTaskId)
+        .listen((events) {
+          value = value.copyWith(agentTaskEvents: events);
+        });
+  }
+
+  Future<void> _syncSelectedAgentTaskExecution() async {
+    final repository = _repository;
+    final selectedTask = value.selectedAgentTask;
+    if (repository == null || selectedTask?.sessionId == null) {
+      if (value.currentExecutionSession != null) {
+        value = value.copyWith(clearCurrentExecutionSession: true);
+      }
+      return;
+    }
+    final task = selectedTask!;
+    final current = value.currentExecutionSession;
+    if (current != null && current.id == task.sessionId) {
+      return;
+    }
+    try {
+      final session = await repository.loadExecutionSession(
+        repoId: task.repoId,
+        sessionId: task.sessionId!,
+      );
+      if (session != null &&
+          value.selectedAgentTaskId == task.id &&
+          value.selectedAgentTask?.sessionId == task.sessionId) {
+        value = value.copyWith(
+          currentExecutionSession: session,
+          clearCurrentChangeRequest: true,
+        );
+      }
+    } catch (_) {
+      // Keep task streaming resilient if the execution session loads late.
+    }
   }
 
   /// Ensures there is a selected prompt thread (e.g. before quick Git commands).
@@ -661,6 +724,30 @@ jobs:
             }
           });
 
+      _agentTasksSubscription = repository
+          .watchAgentTasks(authState.account!.id)
+          .listen((agentTasks) async {
+            final preferredTaskId = agentTasks.any(
+                  (task) => task.id == value.selectedAgentTaskId,
+                )
+                ? value.selectedAgentTaskId
+                : (() {
+                    for (final task in agentTasks) {
+                      if (task.isActive) {
+                        return task.id;
+                      }
+                    }
+                    return agentTasks.isNotEmpty ? agentTasks.first.id : null;
+                  }());
+            value = value.copyWith(
+              agentTasks: agentTasks,
+              selectedAgentTaskId: preferredTaskId,
+              clearSelectedAgentTask: agentTasks.isEmpty,
+            );
+            await _bindAgentTaskEvents();
+            await _syncSelectedAgentTaskExecution();
+          });
+
       _connectionsSubscription = repository
           .watchConnections(authState.account!.id)
           .listen((connections) {
@@ -1031,17 +1118,37 @@ jobs:
           ? thread
           : latest,
     );
+    final matchingTask = value.agentTasks
+        .where((task) => task.repoId == repository.id)
+        .fold<ForgeAgentTask?>(
+          null,
+          (latest, task) {
+            if (latest == null) {
+              return task;
+            }
+            if (task.isActive && !latest.isActive) {
+              return task;
+            }
+            if (task.createdAt.isAfter(latest.createdAt)) {
+              return task;
+            }
+            return latest;
+          },
+        );
     value = value.copyWith(
       selectedRepository: repository,
       selectedBranch: repository.defaultBranch,
       selectedPromptThreadId:
           matchingThread?.id ?? value.selectedPromptThreadId,
+      selectedAgentTaskId: matchingTask?.id ?? value.selectedAgentTaskId,
       clearSelectedFile: true,
       clearCurrentDocument: true,
       clearCurrentChangeRequest: true,
       clearCurrentExecutionSession: true,
     );
     await _bindFiles();
+    await _bindAgentTaskEvents();
+    await _syncSelectedAgentTaskExecution();
   }
 
   Future<void> selectBranch(String branch) async {
@@ -1063,6 +1170,193 @@ jobs:
       dangerMode: false,
     );
     return result.reply;
+  }
+
+  Future<void> selectAgentTask(String taskId) async {
+    if (taskId == value.selectedAgentTaskId) {
+      return;
+    }
+    final task = _findAgentTaskById(taskId);
+    final repo = _findRepositoryById(task?.repoId);
+    if (repo != null && value.selectedRepository?.id != repo.id) {
+      value = value.copyWith(
+        selectedRepository: repo,
+        selectedBranch: repo.defaultBranch,
+        clearSelectedFile: true,
+        clearCurrentDocument: true,
+        clearCurrentChangeRequest: true,
+        clearCurrentExecutionSession: true,
+      );
+      await _bindFiles();
+    }
+    value = value.copyWith(selectedAgentTaskId: taskId);
+    await _bindAgentTaskEvents();
+    await _syncSelectedAgentTaskExecution();
+  }
+
+  Future<String> enqueueAgentTask({
+    required String prompt,
+    String? repoId,
+    String? currentFilePath,
+  }) async {
+    final repository = _repository;
+    if (repository == null) {
+      throw StateError('Agent mode is unavailable until the workspace is ready.');
+    }
+    final targetRepoId =
+        repoId ??
+        value.selectedRepository?.id ??
+        (value.repositories.length == 1 ? value.repositories.first.id : null);
+    if (targetRepoId == null) {
+      throw StateError('Select a repository before starting an agent task.');
+    }
+    value = value.copyWith(isSubmittingAgentTask: true, clearError: true);
+    try {
+      final taskId = await repository.enqueueAgentTask(
+        repoId: targetRepoId,
+        prompt: prompt.trim(),
+        currentFilePath: currentFilePath ?? value.currentDocument?.path,
+        deepMode: value.repoExecutionDeepMode,
+        threadId: value.selectedPromptThreadId,
+      );
+      value = value.copyWith(
+        isSubmittingAgentTask: false,
+        selectedAgentTaskId: taskId,
+      );
+      await _bindAgentTaskEvents();
+      await _syncSelectedAgentTaskExecution();
+      unawaited(
+        _telemetry.logEvent(
+          'forge_agent_task_enqueued',
+          parameters: <String, Object?>{
+            'repo_id': targetRepoId,
+            'deep_mode': value.repoExecutionDeepMode,
+          },
+        ),
+      );
+      return taskId;
+    } catch (error) {
+      value = value.copyWith(
+        isSubmittingAgentTask: false,
+        errorMessage: forgeUserFriendlyMessage(error),
+      );
+      unawaited(
+        _telemetry.recordError(
+          error,
+          StackTrace.current,
+          reason: 'workspace_enqueue_agent_task',
+        ),
+      );
+      rethrow;
+    }
+  }
+
+  Future<void> cancelAgentTask({String? taskId}) async {
+    final repository = _repository;
+    final targetTask =
+        _findAgentTaskById(taskId ?? value.selectedAgentTaskId) ??
+        value.selectedAgentTask;
+    if (repository == null || targetTask == null) {
+      return;
+    }
+    value = value.copyWith(isResolvingAgentTask: true, clearError: true);
+    try {
+      await repository.cancelAgentTask(targetTask.id);
+      value = value.copyWith(
+        isResolvingAgentTask: false,
+        clearCurrentExecutionSession: targetTask.sessionId != null,
+      );
+    } catch (error) {
+      value = value.copyWith(
+        isResolvingAgentTask: false,
+        errorMessage: forgeUserFriendlyMessage(error),
+      );
+      unawaited(
+        _telemetry.recordError(
+          error,
+          StackTrace.current,
+          reason: 'workspace_cancel_agent_task',
+        ),
+      );
+      rethrow;
+    }
+  }
+
+  Future<void> pauseAgentTask({String? taskId}) async {
+    final repository = _repository;
+    final targetTask =
+        _findAgentTaskById(taskId ?? value.selectedAgentTaskId) ??
+        value.selectedAgentTask;
+    if (repository == null || targetTask == null) {
+      return;
+    }
+    value = value.copyWith(isResolvingAgentTask: true, clearError: true);
+    try {
+      await repository.pauseAgentTask(targetTask.id);
+      value = value.copyWith(isResolvingAgentTask: false);
+    } catch (error) {
+      value = value.copyWith(
+        isResolvingAgentTask: false,
+        errorMessage: forgeUserFriendlyMessage(error),
+      );
+      unawaited(
+        _telemetry.recordError(
+          error,
+          StackTrace.current,
+          reason: 'workspace_pause_agent_task',
+        ),
+      );
+      rethrow;
+    }
+  }
+
+  Future<void> resolveAgentTaskApproval({
+    String? taskId,
+    required bool approved,
+  }) async {
+    final repository = _repository;
+    final targetTask =
+        _findAgentTaskById(taskId ?? value.selectedAgentTaskId) ??
+        value.selectedAgentTask;
+    if (repository == null || targetTask == null) {
+      return;
+    }
+    value = value.copyWith(isResolvingAgentTask: true, clearError: true);
+    try {
+      await repository.resolveAgentTaskApproval(
+        taskId: targetTask.id,
+        approved: approved,
+      );
+      value = value.copyWith(
+        isResolvingAgentTask: false,
+        clearCurrentExecutionSession: !approved &&
+            targetTask.pendingApproval?.type ==
+                ForgeAgentTaskApprovalType.applyChanges,
+      );
+      unawaited(
+        _telemetry.logEvent(
+          'forge_agent_task_approval_resolved',
+          parameters: <String, Object?>{
+            'approved': approved,
+            'task_id': targetTask.id,
+            'approval_type': targetTask.pendingApproval?.type.name,
+          },
+        ),
+      );
+    } catch (error) {
+      value = value.copyWith(
+        isResolvingAgentTask: false,
+        errorMessage: forgeUserFriendlyMessage(error),
+      );
+      unawaited(
+        _telemetry.recordError(
+          error,
+          StackTrace.current,
+          reason: 'workspace_resolve_agent_task_approval',
+        ),
+      );
+      rethrow;
+    }
   }
 
   Future<void> openFile(ForgeFileNode file) async {
@@ -1298,37 +1592,31 @@ jobs:
     required ForgeAiProvider provider,
   }) async {
     final selectedRepository = value.selectedRepository;
-    final currentDocument = value.currentDocument;
-    if (selectedRepository == null || currentDocument == null) {
+    if (selectedRepository == null) {
       return;
     }
     value = value.copyWith(isRunningAi: true, clearError: true);
     try {
-      final session = await _repository!.executeRepoTask(
+      final taskId = await _repository!.enqueueAgentTask(
         repoId: selectedRepository.id,
         prompt: prompt,
-        currentFilePath: currentDocument.path,
+        currentFilePath: value.currentDocument?.path,
         deepMode: value.repoExecutionDeepMode,
+        threadId: value.selectedPromptThreadId,
       );
       value = value.copyWith(
         isRunningAi: false,
-        currentExecutionSession: session,
-        clearCurrentChangeRequest: true,
-        promptLastAgentTrace:
-            _traceFromExecutionSession(
-              session,
-              threadId: value.selectedPromptThreadId ?? 'editor',
-            ),
+        selectedAgentTaskId: taskId,
       );
+      await _bindAgentTaskEvents();
+      await _syncSelectedAgentTaskExecution();
       unawaited(
         _telemetry.logEvent(
-          'forge_repo_execution_created',
+          'forge_agent_task_started_from_editor',
           parameters: <String, Object?>{
             'provider': provider.name,
-            'estimated_tokens': session.estimatedTokens,
-            'path': currentDocument.path,
-            'edit_count': session.edits.length,
-            'mode': session.mode,
+            'repo_id': selectedRepository.id,
+            'mode': value.repoExecutionDeepMode ? 'deep' : 'normal',
           },
         ),
       );
@@ -1349,6 +1637,14 @@ jobs:
   }
 
   Future<void> approveCurrentExecution() async {
+    final agentTask = value.selectedAgentTask;
+    if (agentTask != null &&
+        agentTask.status == ForgeAgentTaskStatus.waitingForInput &&
+        agentTask.pendingApproval?.type ==
+            ForgeAgentTaskApprovalType.applyChanges) {
+      await resolveAgentTaskApproval(approved: true, taskId: agentTask.id);
+      return;
+    }
     final session = value.currentExecutionSession;
     final currentDocument = value.currentDocument;
     if (session == null) {
@@ -1432,6 +1728,14 @@ jobs:
   }
 
   Future<void> rejectCurrentExecution() async {
+    final agentTask = value.selectedAgentTask;
+    if (agentTask != null &&
+        agentTask.status == ForgeAgentTaskStatus.waitingForInput &&
+        agentTask.pendingApproval?.type ==
+            ForgeAgentTaskApprovalType.applyChanges) {
+      await resolveAgentTaskApproval(approved: false, taskId: agentTask.id);
+      return;
+    }
     final session = value.currentExecutionSession;
     if (session == null) {
       return;
@@ -1914,6 +2218,8 @@ jobs:
     await _tokenLogsSubscription?.cancel();
     await _filesSubscription?.cancel();
     await _promptThreadsSubscription?.cancel();
+    await _agentTasksSubscription?.cancel();
+    await _agentTaskEventsSubscription?.cancel();
   }
 
   @override

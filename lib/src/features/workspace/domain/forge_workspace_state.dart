@@ -1,4 +1,5 @@
 import '../../../shared/forge_models.dart';
+import 'forge_agent_entities.dart';
 import 'forge_workspace_entities.dart';
 
 /// Default wallet until backend snapshot arrives. Backend grants unlimited only to allowlisted email.
@@ -27,6 +28,11 @@ class ForgeWorkspaceState {
     this.checks = const <ForgeCheckRun>[],
     this.repoWorkflows = const <ForgeRepoWorkflow>[],
     this.tokenLogs = const <ForgeTokenLog>[],
+    this.agentTasks = const <ForgeAgentTask>[],
+    this.selectedAgentTaskId,
+    this.agentTaskEvents = const <ForgeAgentTaskEvent>[],
+    this.isSubmittingAgentTask = false,
+    this.isResolvingAgentTask = false,
     this.promptThreads = const <ForgePromptThread>[],
     this.selectedPromptThreadId,
     this.isPromptLoading = false,
@@ -61,6 +67,11 @@ class ForgeWorkspaceState {
   final List<ForgeCheckRun> checks;
   final List<ForgeRepoWorkflow> repoWorkflows;
   final List<ForgeTokenLog> tokenLogs;
+  final List<ForgeAgentTask> agentTasks;
+  final String? selectedAgentTaskId;
+  final List<ForgeAgentTaskEvent> agentTaskEvents;
+  final bool isSubmittingAgentTask;
+  final bool isResolvingAgentTask;
   final List<ForgePromptThread> promptThreads;
   final String? selectedPromptThreadId;
   final bool isPromptLoading;
@@ -84,6 +95,18 @@ class ForgeWorkspaceState {
   bool get hasConnections => connections.isNotEmpty;
   bool get hasSelection => selectedRepository != null;
   bool get hasOpenFile => currentDocument != null;
+  ForgeAgentTask? get selectedAgentTask {
+    final id = selectedAgentTaskId;
+    if (id == null) {
+      return null;
+    }
+    for (final task in agentTasks) {
+      if (task.id == id) {
+        return task;
+      }
+    }
+    return null;
+  }
 
   ForgeWorkspaceState copyWith({
     bool? isBootstrapping,
@@ -100,6 +123,11 @@ class ForgeWorkspaceState {
     List<ForgeCheckRun>? checks,
     List<ForgeRepoWorkflow>? repoWorkflows,
     List<ForgeTokenLog>? tokenLogs,
+    List<ForgeAgentTask>? agentTasks,
+    String? selectedAgentTaskId,
+    List<ForgeAgentTaskEvent>? agentTaskEvents,
+    bool? isSubmittingAgentTask,
+    bool? isResolvingAgentTask,
     List<ForgePromptThread>? promptThreads,
     String? selectedPromptThreadId,
     bool? isPromptLoading,
@@ -127,6 +155,7 @@ class ForgeWorkspaceState {
     bool clearError = false,
     bool clearSelectedPromptThread = false,
     bool clearPromptStatus = false,
+    bool clearSelectedAgentTask = false,
   }) {
     return ForgeWorkspaceState(
       isBootstrapping: isBootstrapping ?? this.isBootstrapping,
@@ -145,6 +174,14 @@ class ForgeWorkspaceState {
       checks: checks ?? this.checks,
       repoWorkflows: repoWorkflows ?? this.repoWorkflows,
       tokenLogs: tokenLogs ?? this.tokenLogs,
+      agentTasks: agentTasks ?? this.agentTasks,
+      selectedAgentTaskId: clearSelectedAgentTask
+          ? null
+          : (selectedAgentTaskId ?? this.selectedAgentTaskId),
+      agentTaskEvents: agentTaskEvents ?? this.agentTaskEvents,
+      isSubmittingAgentTask:
+          isSubmittingAgentTask ?? this.isSubmittingAgentTask,
+      isResolvingAgentTask: isResolvingAgentTask ?? this.isResolvingAgentTask,
       promptThreads: promptThreads ?? this.promptThreads,
       selectedPromptThreadId: clearSelectedPromptThread
           ? null

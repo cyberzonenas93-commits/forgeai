@@ -10,7 +10,7 @@ import '../core/theme/forge_palette.dart';
 import '../core/notifications/forge_push_controller.dart';
 import '../features/account/presentation/account_settings_screen.dart';
 import '../features/activity/activity_timeline_screen.dart';
-import '../features/ask/ask_screen.dart';
+import '../features/agent/agent_mode_screen.dart';
 import '../features/auth/application/auth_controller.dart';
 import '../features/auth/domain/auth_account.dart';
 import '../features/auth/presentation/guest_gate_dialog.dart';
@@ -71,9 +71,9 @@ class _ForgeHomeShellState extends State<ForgeHomeShell> {
       icon: Icons.hub_rounded,
     ),
     _ShellDestination(
-      label: 'Prompt',
-      subtitle: 'AI conversations, workflow actions, and automation tools.',
-      icon: Icons.chat_bubble_outline_rounded,
+      label: 'Agent',
+      subtitle: 'Active runs, queued work, approvals, and execution logs.',
+      icon: Icons.smart_toy_rounded,
     ),
     _ShellDestination(
       label: 'Code',
@@ -238,7 +238,7 @@ class _ForgeHomeShellState extends State<ForgeHomeShell> {
             onSwitchToRepoTab: _switchTo(4),
             onSwitchToAskTab: _switchTo(2),
           ),
-          AskScreen(
+          AgentModeScreen(
             controller: widget.workspaceController,
             onSwitchToEditorTab: _switchTo(3),
           ),
@@ -564,7 +564,7 @@ class _ShellSidebar extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Responsive command center for repos, prompts, and releases.',
+                          'Responsive command center for repos, runs, and releases.',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ],
@@ -660,7 +660,7 @@ class _ShellSidebar extends StatelessWidget {
             if (collapsed) ...[
               _SidebarIconAction(
                 icon: Icons.chat_bubble_outline_rounded,
-                tooltip: 'Open Prompt',
+                tooltip: 'Open Agent',
                 onTap: onOpenPrompt,
               ),
               const SizedBox(height: 10),
@@ -689,12 +689,12 @@ class _ShellSidebar extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Move between AI, repos, and wallet controls without losing context.',
+                      'Move between live runs, repos, and wallet controls without losing context.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     const SizedBox(height: 14),
                     ForgePrimaryButton(
-                      label: 'Open Prompt',
+                      label: 'Open Agent',
                       icon: Icons.auto_awesome_rounded,
                       onPressed: onOpenPrompt,
                       expanded: true,
@@ -807,7 +807,7 @@ class _ShellHeader extends StatelessWidget {
                   onPressed: onOpenWallet,
                 ),
                 ForgePrimaryButton(
-                  label: 'Prompt AI',
+                  label: 'Start Run',
                   icon: Icons.auto_awesome_rounded,
                   onPressed: onOpenPrompt,
                 ),

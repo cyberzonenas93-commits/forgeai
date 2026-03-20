@@ -11,6 +11,7 @@ import '../../../core/branding/app_branding.dart';
 import '../../../shared/forge_models.dart';
 import '../../auth/domain/auth_account.dart';
 import '../../auth/domain/auth_provider_kind.dart';
+import '../domain/forge_agent_entities.dart';
 import '../domain/forge_workspace_entities.dart';
 
 class ForgeWorkspaceRepository {
@@ -274,6 +275,37 @@ class ForgeWorkspaceRepository {
         });
   }
 
+  Stream<List<ForgeAgentTask>> watchAgentTasks(String ownerId) {
+    return _firestore
+        .collection('users')
+        .doc(ownerId)
+        .collection('agentTasks')
+        .orderBy('createdAtMs', descending: true)
+        .snapshots()
+        .map((snapshot) {
+          final items = snapshot.docs.map(_forgeAgentTaskFromDoc).toList();
+          items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return items;
+        });
+  }
+
+  Stream<List<ForgeAgentTaskEvent>> watchAgentTaskEvents({
+    required String ownerId,
+    required String taskId,
+  }) {
+    return _firestore
+        .collection('users')
+        .doc(ownerId)
+        .collection('agentTasks')
+        .doc(taskId)
+        .collection('events')
+        .orderBy('sequence')
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs.map(_forgeAgentTaskEventFromDoc).toList(),
+        );
+  }
+
   Future<void> savePromptThread({
     required String ownerId,
     required ForgePromptThread thread,
@@ -298,6 +330,54 @@ class ForgeWorkspaceRepository {
               )
               .toList(),
         }, SetOptions(merge: true));
+  }
+
+  Future<String> enqueueAgentTask({
+    required String repoId,
+    required String prompt,
+    String? currentFilePath,
+    bool deepMode = false,
+    String? threadId,
+  }) async {
+    final callable = _functions.httpsCallable('enqueueAgentTask');
+    final result = await callable.call({
+      'repoId': repoId,
+      'prompt': prompt,
+      'deepMode': deepMode,
+      if (currentFilePath != null && currentFilePath.trim().isNotEmpty)
+        'currentFilePath': currentFilePath.trim(),
+      if (threadId != null && threadId.trim().isNotEmpty)
+        'threadId': threadId.trim(),
+    });
+    final data = result.data;
+    if (data is Map) {
+      final taskId = data['taskId'] as String?;
+      if (taskId != null && taskId.isNotEmpty) {
+        return taskId;
+      }
+    }
+    throw const FormatException('enqueueAgentTask: invalid response');
+  }
+
+  Future<void> cancelAgentTask(String taskId) async {
+    final callable = _functions.httpsCallable('cancelAgentTask');
+    await callable.call({'taskId': taskId});
+  }
+
+  Future<void> pauseAgentTask(String taskId) async {
+    final callable = _functions.httpsCallable('pauseAgentTask');
+    await callable.call({'taskId': taskId});
+  }
+
+  Future<void> resolveAgentTaskApproval({
+    required String taskId,
+    required bool approved,
+  }) async {
+    final callable = _functions.httpsCallable('resolveAgentTaskApproval');
+    await callable.call({
+      'taskId': taskId,
+      'decision': approved ? 'approved' : 'rejected',
+    });
   }
 
   Future<ForgeFileDocument?> loadFile({
@@ -631,6 +711,61 @@ class ForgeWorkspaceRepository {
       'repoId': repoId,
       'sessionId': sessionId,
     });
+  }
+
+  Future<ForgeRepoExecutionSession?> loadExecutionSession({
+    required String repoId,
+    required String sessionId,
+  }) async {
+    final snapshot = await _firestore
+        .collection('repositories')
+        .doc(repoId)
+        .collection('executionSessions')
+        .doc(sessionId)
+        .get();
+    if (!snapshot.exists) {
+      return null;
+    }
+    final data = snapshot.data() ?? const <String, dynamic>{};
+    final selectedFiles = (data['selectedFiles'] as List<dynamic>? ?? const [])
+        .whereType<String>()
+        .toList();
+    final dependencyFiles =
+        (data['dependencyFiles'] as List<dynamic>? ?? const [])
+            .whereType<String>()
+            .toList();
+    final steps = (data['steps'] as List<dynamic>? ?? const [])
+        .whereType<String>()
+        .toList();
+    final edits = (data['edits'] as List<dynamic>? ?? const [])
+        .whereType<Map>()
+        .map((item) {
+          final map = item.map((key, value) => MapEntry('$key', value));
+          return ForgeRepoExecutionFileChange(
+            path: (map['path'] as String?) ?? '',
+            action: (map['action'] as String?) ?? 'modify',
+            summary: (map['summary'] as String?) ?? 'Prepared file change.',
+            beforeContent: (map['beforeContent'] as String?) ?? '',
+            afterContent: (map['afterContent'] as String?) ?? '',
+            diffLines: _diffLinesFromPayload(map['diffLines']),
+          );
+        })
+        .toList();
+    return ForgeRepoExecutionSession(
+      id: sessionId,
+      repoId: repoId,
+      prompt: (data['prompt'] as String?) ?? '',
+      mode: (data['mode'] as String?) ?? 'normal',
+      summary:
+          (data['summary'] as String?) ??
+          'Prepared repo execution changes for review.',
+      estimatedTokens: (data['estimatedTokens'] as num?)?.toInt() ?? 0,
+      selectedFiles: selectedFiles,
+      dependencyFiles: dependencyFiles,
+      steps: steps,
+      actionType: (data['actionType'] as String?) ?? 'refactor_code',
+      edits: edits,
+    );
   }
 
   Future<ForgeChangeRequest?> loadChangeRequest(String changeRequestId) async {
@@ -1279,6 +1414,128 @@ class ForgeWorkspaceRepository {
     );
   }
 
+  ForgeAgentTask _forgeAgentTaskFromDoc(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+    final pendingApprovalRaw = data['pendingApproval'];
+    final pendingApproval = pendingApprovalRaw is Map
+        ? _forgeAgentTaskApprovalFromMap(
+            pendingApprovalRaw.map((key, value) => MapEntry('$key', value)),
+          )
+        : null;
+    return ForgeAgentTask(
+      id: doc.id,
+      repoId: (data['repoId'] as String?) ?? '',
+      prompt: (data['prompt'] as String?) ?? '',
+      threadId: data['threadId'] as String?,
+      currentFilePath: data['currentFilePath'] as String?,
+      status: _agentTaskStatusFromString(data['status'] as String?),
+      phase: (data['phase'] as String?) ?? 'queued',
+      currentStep: (data['currentStep'] as String?) ?? 'Queued',
+      deepMode: (data['deepMode'] as bool?) ?? false,
+      createdAt: _asDateTimeFromMillis(data['createdAtMs']) ?? DateTime.now(),
+      updatedAt: _asDateTimeFromMillis(data['updatedAtMs']) ?? DateTime.now(),
+      startedAt: _asDateTimeFromMillis(data['startedAtMs']),
+      completedAt: _asDateTimeFromMillis(data['completedAtMs']),
+      cancelledAt: _asDateTimeFromMillis(data['cancelledAtMs']),
+      failedAt: _asDateTimeFromMillis(data['failedAtMs']),
+      cancelRequestedAt: _asDateTimeFromMillis(data['cancelRequestedAtMs']),
+      pauseRequestedAt: _asDateTimeFromMillis(data['pauseRequestedAtMs']),
+      currentPass: (data['currentPass'] as num?)?.toInt() ?? 0,
+      retryCount: (data['retryCount'] as num?)?.toInt() ?? 0,
+      selectedFiles:
+          (data['selectedFiles'] as List<dynamic>? ?? const <dynamic>[])
+              .whereType<String>()
+              .toList(),
+      inspectedFiles:
+          (data['inspectedFiles'] as List<dynamic>? ?? const <dynamic>[])
+              .whereType<String>()
+              .toList(),
+      dependencyFiles:
+          (data['dependencyFiles'] as List<dynamic>? ?? const <dynamic>[])
+              .whereType<String>()
+              .toList(),
+      filesTouched:
+          (data['filesTouched'] as List<dynamic>? ?? const <dynamic>[])
+              .whereType<String>()
+              .toList(),
+      diffCount: (data['diffCount'] as num?)?.toInt() ?? 0,
+      estimatedTokens: (data['estimatedTokens'] as num?)?.toInt() ?? 0,
+      sessionId: data['sessionId'] as String?,
+      executionSummary: data['executionSummary'] as String?,
+      resultSummary: data['resultSummary'] as String?,
+      errorMessage: data['errorMessage'] as String?,
+      latestEventType: data['latestEventType'] as String?,
+      latestEventMessage: data['latestEventMessage'] as String?,
+      latestEventAt: _asDateTimeFromMillis(data['latestEventAtMs']),
+      latestValidationError: data['latestValidationError'] as String?,
+      pendingApproval: pendingApproval,
+      followUpPlan: _forgeAgentTaskFollowUpPlanFromMap(
+        data['followUpPlan'] is Map
+            ? (data['followUpPlan'] as Map).map(
+                (key, value) => MapEntry('$key', value),
+              )
+            : const <String, dynamic>{},
+      ),
+      metadata: data['metadata'] is Map
+          ? (data['metadata'] as Map).map((key, value) => MapEntry('$key', value))
+          : const <String, dynamic>{},
+    );
+  }
+
+  ForgeAgentTaskEvent _forgeAgentTaskEventFromDoc(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+    return ForgeAgentTaskEvent(
+      id: doc.id,
+      type: (data['type'] as String?) ?? 'task_created',
+      step: (data['step'] as String?) ?? '',
+      message: (data['message'] as String?) ?? '',
+      status: (data['status'] as String?) ?? 'queued',
+      phase: (data['phase'] as String?) ?? 'queued',
+      sequence: (data['sequence'] as num?)?.toInt() ?? 0,
+      createdAt: _asDateTimeFromMillis(data['createdAtMs']) ?? DateTime.now(),
+      data: data['data'] is Map
+          ? (data['data'] as Map).map((key, value) => MapEntry('$key', value))
+          : const <String, dynamic>{},
+    );
+  }
+
+  ForgeAgentTaskApproval _forgeAgentTaskApprovalFromMap(
+    Map<String, dynamic> data,
+  ) {
+    return ForgeAgentTaskApproval(
+      id: (data['id'] as String?) ?? '',
+      type: _agentTaskApprovalTypeFromString(data['type'] as String?),
+      title: (data['title'] as String?) ?? 'Approval required',
+      description:
+          (data['description'] as String?) ??
+          'Review the next step before the agent continues.',
+      status: (data['status'] as String?) ?? 'pending',
+      actionLabel: (data['actionLabel'] as String?) ?? 'Approve',
+      cancelLabel: (data['cancelLabel'] as String?) ?? 'Reject',
+      payload: data['payload'] is Map
+          ? (data['payload'] as Map).map((key, value) => MapEntry('$key', value))
+          : const <String, dynamic>{},
+      createdAt: _asDateTimeFromMillis(data['createdAtMs']) ?? DateTime.now(),
+      resolvedAt: _asDateTimeFromMillis(data['resolvedAtMs']),
+    );
+  }
+
+  ForgeAgentTaskFollowUpPlan _forgeAgentTaskFollowUpPlanFromMap(
+    Map<String, dynamic> data,
+  ) {
+    return ForgeAgentTaskFollowUpPlan(
+      commitChanges: data['commitChanges'] as bool? ?? false,
+      openPullRequest: data['openPullRequest'] as bool? ?? false,
+      mergePullRequest: data['mergePullRequest'] as bool? ?? false,
+      deployWorkflow: data['deployWorkflow'] as bool? ?? false,
+      riskyOperation: data['riskyOperation'] as bool? ?? false,
+    );
+  }
+
   List<ForgeFileNode> _buildFileTree(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
     String? selectedPath,
@@ -1348,6 +1605,16 @@ class ForgeWorkspaceRepository {
     return null;
   }
 
+  DateTime? _asDateTimeFromMillis(Object? raw) {
+    if (raw is int) {
+      return DateTime.fromMillisecondsSinceEpoch(raw);
+    }
+    if (raw is num) {
+      return DateTime.fromMillisecondsSinceEpoch(raw.toInt());
+    }
+    return _asDateTime(raw);
+  }
+
   double _asDouble(Object? value) {
     if (value is int) {
       return value.toDouble();
@@ -1397,6 +1664,29 @@ class ForgeWorkspaceRepository {
       'anthropic' => ForgeAiProvider.anthropic,
       'gemini' => ForgeAiProvider.gemini,
       _ => ForgeAiProvider.openai,
+    };
+  }
+
+  ForgeAgentTaskStatus _agentTaskStatusFromString(String? value) {
+    return switch (value) {
+      'running' => ForgeAgentTaskStatus.running,
+      'waiting_for_input' => ForgeAgentTaskStatus.waitingForInput,
+      'completed' => ForgeAgentTaskStatus.completed,
+      'failed' => ForgeAgentTaskStatus.failed,
+      'cancelled' => ForgeAgentTaskStatus.cancelled,
+      _ => ForgeAgentTaskStatus.queued,
+    };
+  }
+
+  ForgeAgentTaskApprovalType _agentTaskApprovalTypeFromString(String? value) {
+    return switch (value) {
+      'commit_changes' => ForgeAgentTaskApprovalType.commitChanges,
+      'open_pull_request' => ForgeAgentTaskApprovalType.openPullRequest,
+      'merge_pull_request' => ForgeAgentTaskApprovalType.mergePullRequest,
+      'deploy_workflow' => ForgeAgentTaskApprovalType.deployWorkflow,
+      'resume_task' => ForgeAgentTaskApprovalType.resumeTask,
+      'risky_operation' => ForgeAgentTaskApprovalType.riskyOperation,
+      _ => ForgeAgentTaskApprovalType.applyChanges,
     };
   }
 

@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../core/theme/forge_palette.dart';
 import '../../shared/forge_user_friendly_error.dart';
 import '../../shared/widgets/forge_widgets.dart';
-import '../diff/diff_review_screen.dart';
 import '../workspace/application/forge_workspace_controller.dart';
 import '../workspace/domain/forge_workspace_entities.dart';
 
@@ -32,7 +31,11 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
       builder: (context, state, _) {
         final estimate = (_promptController.text.length / 3).ceil() +
             (state.repoExecutionDeepMode ? 420 : 240);
-        final session = state.currentExecutionSession;
+        final task = state.selectedAgentTask;
+        final selectedRepoId = state.selectedRepository?.id;
+        final hasActiveRun = state.agentTasks.any(
+          (item) => item.repoId == selectedRepoId && item.isActive,
+        );
         final balance = state.wallet.balance.toInt();
         return Scaffold(
           backgroundColor: Colors.transparent,
@@ -45,9 +48,9 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       ForgeSectionHeader(
-                        title: 'Repo-aware execution',
+                        title: 'Repo-aware run',
                         subtitle:
-                            'Describe the real repository change you want. The agent will retrieve relevant files, prepare a multi-file diff, and wait for approval before anything is applied. Wallet: $balance tokens.',
+                            'Start a durable repo run from the editor. If another run is active, this request queues behind it. Wallet: $balance tokens.',
                       ),
                       const SizedBox(height: 16),
                       SegmentedButton<bool>(
@@ -75,7 +78,7 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                         controller: _promptController,
                         maxLines: 5,
                         decoration: const InputDecoration(
-                          labelText: 'What should change?',
+                          labelText: 'What should this run do?',
                           hintText:
                               'e.g. add authentication to this app, wire Git commit staging, or refactor repository retrieval',
                         ),
@@ -87,8 +90,10 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                           Expanded(
                             child: ForgePrimaryButton(
                               label: state.isRunningAi
-                                  ? 'Generating...'
-                                  : 'Generate repo diff',
+                                  ? 'Submitting...'
+                                  : hasActiveRun
+                                      ? 'Queue run'
+                                      : 'Start run',
                               icon: Icons.auto_awesome_rounded,
                               onPressed: state.isRunningAi
                                   ? null
@@ -100,6 +105,15 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                       ),
                       const SizedBox(height: 12),
                       if (state.isRunningAi) const ForgeAiIndicator(),
+                      if (hasActiveRun) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          'A run is already active for this workspace. Submitting here adds another run to the queue.',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: ForgePalette.warning,
+                          ),
+                        ),
+                      ],
                       Text(
                         '~$estimate tokens estimated • ${state.repoExecutionDeepMode ? 'deep mode loads more files' : 'normal mode stays fast'} • review before apply/commit',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -115,20 +129,22 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Prepared execution',
+                        'Run handoff',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 12),
-                      if (session == null)
+                      if (task == null)
                         const ForgeCodeBlock(
                           lines: [
-                            'No execution session yet.',
-                            'Describe the repo change you want, then generate a diff.',
+                            'No run selected yet.',
+                            'Start a repo run and follow it from the Agent tab.',
                           ],
                         )
                       else ...[
                         Text(
-                          session.summary,
+                          task.executionSummary ??
+                              task.resultSummary ??
+                              task.currentStep,
                           style: Theme.of(context).textTheme.bodyMedium,
                         ),
                         const SizedBox(height: 12),
@@ -137,15 +153,15 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                           runSpacing: 8,
                           children: [
                             ForgePill(
-                              label: '${session.edits.length} files',
+                              label: '${task.filesTouched.length} files',
                               icon: Icons.description_rounded,
                             ),
                             ForgePill(
-                              label: session.isDeepMode ? 'Deep mode' : 'Normal mode',
+                              label: task.deepMode ? 'Deep mode' : 'Normal mode',
                               icon: Icons.tune_rounded,
                             ),
                             ForgePill(
-                              label: '${session.estimatedTokens} tokens',
+                              label: '${task.estimatedTokens} tokens',
                               icon: Icons.token_rounded,
                             ),
                           ],
@@ -153,10 +169,10 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                         const SizedBox(height: 12),
                         ForgeCodeBlock(
                           lines: [
-                            'Files prepared for review:',
-                            ...session.edits.map(
-                              (edit) => '- ${edit.action.toUpperCase()} ${edit.path}',
-                            ),
+                            'Run status:',
+                            '- ${task.currentStep}',
+                            if (task.selectedFiles.isNotEmpty) 'Files in scope:',
+                            ...task.selectedFiles.take(8).map((path) => '- $path'),
                           ],
                         ),
                       ],
@@ -180,11 +196,12 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
       if (!context.mounted) {
         return;
       }
-      await Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(
-          builder: (_) => DiffReviewScreen(controller: widget.controller),
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Run created. Track it from the Agent tab.'),
         ),
       );
+      Navigator.of(context).pop();
     } catch (error) {
       if (!context.mounted) {
         return;
