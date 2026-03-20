@@ -212,11 +212,11 @@ const GIT_CALLABLE_OPTIONS: CallableOptions = {
 };
 const AI_CALLABLE_OPTIONS: CallableOptions = {
   ...BASE_CALLABLE_OPTIONS,
-  secrets: ['OPENAI_API_KEY'],
+  secrets: ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'],
 };
 const GIT_AND_AI_CALLABLE_OPTIONS: CallableOptions = {
   ...BASE_CALLABLE_OPTIONS,
-  secrets: ['OPENAI_API_KEY', 'GITHUB_TOKEN'],
+  secrets: ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GITHUB_TOKEN'],
 };
 const IAP_CALLABLE_OPTIONS: CallableOptions = {
   ...BASE_CALLABLE_OPTIONS,
@@ -245,7 +245,7 @@ const AGENT_TASK_RUNTIME_OPTIONS = {
   region: runtimeSettings.firebaseRegion,
   timeoutSeconds: 540,
   memory: '1GiB' as const,
-  secrets: ['OPENAI_API_KEY', 'GITHUB_TOKEN'],
+  secrets: ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GITHUB_TOKEN'],
 };
 const AGENT_WORKER_RUNTIME_OPTIONS = {
   ...AGENT_TASK_RUNTIME_OPTIONS,
