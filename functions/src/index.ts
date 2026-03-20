@@ -161,6 +161,12 @@ import {
 } from './tool_registry';
 import { executeAgentTool, type AgentToolExecutionRecord } from './tool_executor';
 import { parseToolOutputFindings, summarizeToolOutputFailure } from './tool_output_parser';
+import {
+  indexFileEmbeddings,
+  markRepoEmbeddingsIndexed,
+} from './vector_store';
+import { recordRoutingMetric } from './routing_metrics';
+import { resolveRepoExecutionProviderRoutingAsync } from './routing_engine';
 
 initializeApp();
 
@@ -4819,13 +4825,16 @@ async function generateRepoExecutionSession(params: {
     budgetRemainingRatio: params.budgetRemainingRatio,
     repoSizeClass: preparedContext.repoSizeClass,
   });
-  const executionRouting = resolveRepoExecutionProviderRouting({
+  // Adaptive routing: use historical per-repo performance data when available;
+  // falls back to static ordering transparently.
+  const executionRouting = await resolveRepoExecutionProviderRoutingAsync({
     requestedProvider: params.requestedProvider ?? null,
     stage: params.repairMode === true ? 'repair_diff' : 'generate_diff',
     deepMode: params.deepMode,
     repoSizeClass: preparedContext.repoSizeClass,
     retryCount: effectiveRetryCount,
     costProfile: initialCostProfile,
+    repoId: params.repoId,
   });
   const maxStructuredOutputAttempts = params.deepMode ? 5 : 4;
   let finalExecutionRouting = executionRouting;
@@ -4894,10 +4903,12 @@ async function generateRepoExecutionSession(params: {
     planningSummary: preparedContext.planningSummary,
   });
 
-  const pickRoutingForAttempt = (attempt: number) => {
+  const pickRoutingForAttempt = async (attempt: number) => {
     const stage =
       attempt === 1 && params.repairMode !== true ? 'generate_diff' : 'repair_diff';
-    const routing = resolveRepoExecutionProviderRouting({
+    // Use adaptive routing for repair attempts as well — historical data on
+    // repair_diff performance may differ from generate_diff.
+    const routing = await resolveRepoExecutionProviderRoutingAsync({
       requestedProvider:
         attempt === 1 ? params.requestedProvider ?? null : null,
       stage,
@@ -4911,6 +4922,7 @@ async function generateRepoExecutionSession(params: {
         budgetRemainingRatio: params.budgetRemainingRatio,
         repoSizeClass: preparedContext.repoSizeClass,
       }),
+      repoId: params.repoId,
     });
     const provider =
       routing.availableProviders[Math.min(attempt - 1, routing.availableProviders.length - 1)] ??
@@ -4934,7 +4946,7 @@ async function generateRepoExecutionSession(params: {
     preparedContext.selectedEntries.map(entry => entry.path),
   );
   for (let attempt = 1; attempt <= maxStructuredOutputAttempts; attempt += 1) {
-    const routing = attempt === 1 ? executionRouting : pickRoutingForAttempt(attempt);
+    const routing = attempt === 1 ? executionRouting : await pickRoutingForAttempt(attempt);
     finalExecutionRouting = routing;
     if (attempt > 1) {
       await params.observer?.onRetrying?.({
@@ -8603,6 +8615,8 @@ async function processAgentTaskRun(ownerId: string, taskId: string, runToken: nu
     ownerId,
     taskId,
   });
+  // Record the wall-clock start time for routing metrics latency tracking.
+  const generateSessionStartMs = Date.now();
   let session = await generateRepoExecutionSession({
     ownerId,
     repoId: task.repoId,
@@ -8648,6 +8662,15 @@ async function processAgentTaskRun(ownerId: string, taskId: string, runToken: nu
       inspectedFileCount: session.inspectedFiles.length,
     },
   });
+  // Log the routing decision reason to the real-time streamLog so users can
+  // see which model was selected (and whether adaptive routing was used).
+  if (session.executionProviderReason) {
+    void appendStreamLogEntry(ownerId, taskId, {
+      timestampMs: Date.now(),
+      type: 'info',
+      content: `[routing] ${session.executionProviderReason}`,
+    });
+  }
   await recordLogicalAgentActivity({
     ownerId,
     taskId,
@@ -8878,6 +8901,31 @@ async function processAgentTaskRun(ownerId: string, taskId: string, runToken: nu
     session,
     repoObserver,
   });
+
+  // Record routing metric now that we know the final validation outcome.
+  // repairPassesNeeded = task.retryCount at this point (how many repair
+  // passes were run before this validation check).
+  if (session.executionProvider && session.executionModel) {
+    recordRoutingMetric({
+      repoId: task.repoId,
+      taskId,
+      model: session.executionModel,
+      provider: session.executionProvider,
+      stage: task.retryCount > 0 ? 'repair_diff' : 'generate_diff',
+      latencyMs: Date.now() - generateSessionStartMs,
+      inputTokens: session.estimatedTokens,
+      outputTokens: 0,
+      costUsd: estimateAgentStageCostUsd({
+        provider: session.executionProvider,
+        model: session.executionModel,
+        estimatedTokens: session.estimatedTokens,
+        stage: task.retryCount > 0 ? 'repair' : 'editing',
+      }),
+      validationPassed: preApplyValidation.ok,
+      repairPassesNeeded: task.retryCount,
+    });
+  }
+
   if (!preApplyValidation.ok) {
     await failAgentTaskNow(ownerId, taskId, preApplyValidation.message);
     return;
@@ -13158,6 +13206,93 @@ export const shellExecAgentTask = onCall(GIT_CALLABLE_OPTIONS, async request => 
     sandboxed,
   };
 });
+
+// ---------------------------------------------------------------------------
+// Vector Embeddings Index
+// ---------------------------------------------------------------------------
+
+interface IndexRepoEmbeddingsData {
+  repoId?: unknown;
+  /** Optional soft cap on files to embed per call (default: 200). */
+  maxFiles?: unknown;
+}
+
+/**
+ * Reads all text files for the given repo from the Firestore `files` sub-
+ * collection (populated by `syncRepository`), generates OpenAI embeddings for
+ * new or changed files, and stores them under `repositories/{repoId}/embeddings`.
+ *
+ * Safe to call repeatedly — only new/changed files are re-embedded.
+ * Intended to be triggered after a repo is first connected or re-synced.
+ */
+export const indexRepoEmbeddings = onCall(
+  {
+    ...BASE_CALLABLE_OPTIONS,
+    secrets: ['OPENAI_API_KEY'],
+    timeoutSeconds: 300,
+    memory: '1GiB',
+  },
+  async request => {
+    requireAuth(request);
+    const data = (request.data ?? {}) as Partial<IndexRepoEmbeddingsData>;
+    const repoId = asString(data.repoId, 'repoId');
+    const maxFiles =
+      typeof data.maxFiles === 'number'
+        ? Math.min(Math.max(data.maxFiles, 1), 500)
+        : 200;
+
+    // Load up to maxFiles text files from the repo's `files` sub-collection.
+    // Each document has `path`, `content` / `contentPreview`, and `language`.
+    const MAX_CONTENT_BYTES = 50 * 1024; // 50 KB per file
+    const filesSnap = await db
+      .collection('repositories')
+      .doc(repoId)
+      .collection('files')
+      .limit(maxFiles)
+      .get();
+
+    if (filesSnap.empty) {
+      return { indexed: 0, skipped: 0, total: 0, message: 'No files found for this repo.' };
+    }
+
+    const filesToEmbed: Array<{ path: string; content: string }> = [];
+    for (const doc of filesSnap.docs) {
+      const docData = doc.data() as Record<string, unknown>;
+      const path = typeof docData['path'] === 'string' ? docData['path'] : doc.id;
+      const rawContent =
+        typeof docData['content'] === 'string'
+          ? docData['content']
+          : typeof docData['contentPreview'] === 'string'
+            ? docData['contentPreview']
+            : null;
+      if (!rawContent || rawContent.trim().length === 0) continue;
+      // Skip binary/large files.
+      if (rawContent.length > MAX_CONTENT_BYTES) continue;
+      filesToEmbed.push({ path, content: rawContent });
+    }
+
+    if (filesToEmbed.length === 0) {
+      return {
+        indexed: 0,
+        skipped: filesSnap.size,
+        total: filesSnap.size,
+        message: 'All files were empty or exceeded the size limit.',
+      };
+    }
+
+    const { indexed, skipped } = await indexFileEmbeddings(repoId, filesToEmbed);
+    await markRepoEmbeddingsIndexed(repoId);
+
+    functions.logger.info('indexRepoEmbeddings.complete', { repoId, indexed, skipped });
+
+    return {
+      indexed,
+      skipped,
+      total: filesToEmbed.length,
+      message: `Indexed ${indexed} files (${skipped} unchanged/skipped).`,
+    };
+  },
+);
 
 export const cancelAgentTask = onCall(GIT_CALLABLE_OPTIONS, async request => {
   const ownerId = requireAuth(request);
