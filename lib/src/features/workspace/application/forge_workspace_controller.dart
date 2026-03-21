@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/observability/forge_telemetry.dart';
@@ -1186,6 +1187,10 @@ jobs:
         (value.repositories.length == 1 ? value.repositories.first.id : null);
     if (targetRepoId == null) {
       throw StateError('Select a repository before starting an agent task.');
+    }
+    final ownerId = _boundOwnerId ?? FirebaseAuth.instance.currentUser?.uid;
+    if (ownerId == null) {
+      throw Exception('Not signed in');
     }
     value = value.copyWith(isSubmittingAgentTask: true, clearError: true);
     try {
