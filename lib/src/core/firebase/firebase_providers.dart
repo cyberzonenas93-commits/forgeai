@@ -3,6 +3,8 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../config/forge_runtime_config.dart';
+
 final firebaseAuthProvider = Provider<FirebaseAuth>((ref) {
   return FirebaseAuth.instance;
 });
@@ -12,5 +14,6 @@ final firebaseFirestoreProvider = Provider<FirebaseFirestore>((ref) {
 });
 
 final firebaseFunctionsProvider = Provider<FirebaseFunctions>((ref) {
-  return FirebaseFunctions.instance;
+  final region = ForgeRuntimeConfig.current.firebaseRegion;
+  return FirebaseFunctions.instanceFor(region: region);
 });

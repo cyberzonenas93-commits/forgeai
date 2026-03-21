@@ -54,7 +54,12 @@ class ForgeWorkspaceController extends ValueNotifier<ForgeWorkspaceState> {
   String? _boundOwnerId;
 
   /// The authenticated user's ID, or null if not signed in.
-  String? get currentOwnerId => _boundOwnerId;
+  ///
+  /// Falls back to [FirebaseAuth.instance.currentUser?.uid] to cover the brief
+  /// window between app start and auth-bootstrap completing, during which
+  /// [_boundOwnerId] is still null even though Firebase already has a user.
+  String? get currentOwnerId =>
+      _boundOwnerId ?? FirebaseAuth.instance.currentUser?.uid;
 
   bool _hasLoadedPromptThreads = false;
   int _promptRequestNonce = 0;
