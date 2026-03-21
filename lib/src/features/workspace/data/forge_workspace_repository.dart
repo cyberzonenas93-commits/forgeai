@@ -377,8 +377,15 @@ class ForgeWorkspaceRepository {
     // Pre-emptively force-refresh the ID token. The cloud_functions iOS SDK
     // sometimes sends a stale token even when Firebase Auth has a valid
     // session, so warming the native token cache here reduces first-attempt
-    // failures.
-    await user.getIdToken(true);
+    // failures. If the refresh itself fails (e.g. network error), continue
+    // anyway — the callable may still succeed with the native SDK's cached
+    // token, and any real auth failure will surface as `unauthenticated` below.
+    try {
+      await user.getIdToken(true);
+    } catch (_) {
+      // Ignore token-refresh failures; proceed and let the callable determine
+      // whether the current token is still valid.
+    }
 
     final callable = _functions.httpsCallable('enqueueAgentTask');
     final payload = <String, dynamic>{
@@ -400,13 +407,18 @@ class ForgeWorkspaceRepository {
     // Functions SDK holds its own internal token state). When the backend
     // returns `unauthenticated`, force-refresh once more and retry — after a
     // failed call the native SDK resets its token state, so the second attempt
-    // picks up the freshly-refreshed token.
+    // picks up the freshly-refreshed token. Swallow refresh errors here too so
+    // the retry attempt always runs.
     HttpsCallableResult<dynamic> result;
     try {
       result = await callable.call(payload);
     } on FirebaseFunctionsException catch (e) {
       if (e.code != 'unauthenticated') rethrow;
-      await user.getIdToken(true);
+      try {
+        await user.getIdToken(true);
+      } catch (_) {
+        // Ignore; proceed with the retry regardless.
+      }
       result = await callable.call(payload);
     }
 
