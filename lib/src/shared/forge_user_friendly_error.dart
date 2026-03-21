@@ -12,14 +12,16 @@ String forgeUserFriendlyMessage(Object error, {int maxLength = 320}) {
   if (error is AuthFailure) {
     return _truncate(error.message, maxLength);
   }
-  if (error is FirebaseException) {
-    return _truncate(_firebaseExceptionMessage(error), maxLength);
+  // FirebaseFunctionsException and FirebaseAuthException both extend
+  // FirebaseException, so check the subtypes first.
+  if (error is FirebaseFunctionsException) {
+    return _truncate(_firebaseFunctionsExceptionMessage(error), maxLength);
   }
   if (error is FirebaseAuthException) {
     return _truncate(_firebaseAuthExceptionMessage(error), maxLength);
   }
-  if (error is FirebaseFunctionsException) {
-    return _truncate(_firebaseFunctionsExceptionMessage(error), maxLength);
+  if (error is FirebaseException) {
+    return _truncate(_firebaseExceptionMessage(error), maxLength);
   }
   if (error is PlatformException) {
     return _truncate(_platformExceptionMessage(error), maxLength);

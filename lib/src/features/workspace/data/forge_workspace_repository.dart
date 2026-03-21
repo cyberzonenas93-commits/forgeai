@@ -4,6 +4,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -18,11 +19,14 @@ class ForgeWorkspaceRepository {
   ForgeWorkspaceRepository({
     required FirebaseFirestore firestore,
     required FirebaseFunctions functions,
+    FirebaseAuth? auth,
   }) : _firestore = firestore,
-       _functions = functions;
+       _functions = functions,
+       _auth = auth ?? FirebaseAuth.instance;
 
   final FirebaseFirestore _firestore;
   final FirebaseFunctions _functions;
+  final FirebaseAuth _auth;
 
   Future<void> ensureBootstrap(AuthAccount account) async {
     final userRef = _firestore.collection('users').doc(account.id);
@@ -362,6 +366,17 @@ class ForgeWorkspaceRepository {
     String? provider,
     String? trustLevel,
   }) async {
+    // Ensure we have an authenticated user before calling the backend.
+    // getIdToken(true) forces a fresh token, guarding against the iOS-specific
+    // bug where cloud_functions does not auto-refresh an expired ID token.
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'requires-recent-login',
+        message: 'Not signed in.',
+      );
+    }
+    await user.getIdToken(true);
     final callable = _functions.httpsCallable('enqueueAgentTask');
     final result = await callable.call({
       'repoId': repoId,
