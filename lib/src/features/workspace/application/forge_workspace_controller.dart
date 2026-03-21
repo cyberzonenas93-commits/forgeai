@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/observability/forge_telemetry.dart';
@@ -1179,6 +1180,10 @@ jobs:
     final repository = _repository;
     if (repository == null) {
       throw StateError('Agent mode is unavailable until the workspace is ready.');
+    }
+    final effectiveOwnerId = _boundOwnerId ?? FirebaseAuth.instance.currentUser?.uid;
+    if (effectiveOwnerId == null) {
+      throw FirebaseAuthException(code: 'not-authenticated', message: 'You need to be signed in.');
     }
     final targetRepoId =
         repoId ??
