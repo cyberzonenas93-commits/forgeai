@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/observability/forge_telemetry.dart';
@@ -1177,7 +1178,9 @@ jobs:
     ForgeAiProvider? provider,
   }) async {
     final repository = _repository;
-    if (repository == null) {
+    final ownerId =
+        _boundOwnerId ?? FirebaseAuth.instance.currentUser?.uid;
+    if (repository == null || ownerId == null) {
       throw StateError('Agent mode is unavailable until the workspace is ready.');
     }
     final targetRepoId =
@@ -1189,6 +1192,9 @@ jobs:
     }
     value = value.copyWith(isSubmittingAgentTask: true, clearError: true);
     try {
+      // Force a fresh ID token before the callable to guard against stale tokens
+      // on iOS where cloud_functions does not auto-refresh expired tokens.
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
       final taskId = await repository.enqueueAgentTask(
         repoId: targetRepoId,
         prompt: prompt.trim(),
