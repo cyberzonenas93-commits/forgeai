@@ -367,8 +367,6 @@ class ForgeWorkspaceRepository {
     String? trustLevel,
   }) async {
     // Ensure we have an authenticated user before calling the backend.
-    // getIdToken(true) forces a fresh token, guarding against the iOS-specific
-    // bug where cloud_functions does not auto-refresh an expired ID token.
     final user = _auth.currentUser;
     if (user == null) {
       throw FirebaseAuthException(
@@ -376,9 +374,14 @@ class ForgeWorkspaceRepository {
         message: 'Not signed in.',
       );
     }
+    // Pre-emptively force-refresh the ID token. The cloud_functions iOS SDK
+    // sometimes sends a stale token even when Firebase Auth has a valid
+    // session, so warming the native token cache here reduces first-attempt
+    // failures.
     await user.getIdToken(true);
+
     final callable = _functions.httpsCallable('enqueueAgentTask');
-    final result = await callable.call({
+    final payload = <String, dynamic>{
       'repoId': repoId,
       'prompt': prompt,
       'deepMode': deepMode,
@@ -390,10 +393,26 @@ class ForgeWorkspaceRepository {
         'provider': provider.trim(),
       if (trustLevel != null && trustLevel.trim().isNotEmpty)
         'trustLevel': trustLevel.trim(),
-    });
-    final data = result.data;
-    if (data is Map) {
-      final taskId = data['taskId'] as String?;
+    };
+
+    // On iOS the cloud_functions SDK occasionally sends a stale auth token on
+    // the first call even after the pre-emptive refresh above (the native
+    // Functions SDK holds its own internal token state). When the backend
+    // returns `unauthenticated`, force-refresh once more and retry — after a
+    // failed call the native SDK resets its token state, so the second attempt
+    // picks up the freshly-refreshed token.
+    HttpsCallableResult<dynamic> result;
+    try {
+      result = await callable.call(payload);
+    } on FirebaseFunctionsException catch (e) {
+      if (e.code != 'unauthenticated') rethrow;
+      await user.getIdToken(true);
+      result = await callable.call(payload);
+    }
+
+    final responseData = result.data;
+    if (responseData is Map) {
+      final taskId = responseData['taskId'] as String?;
       if (taskId != null && taskId.isNotEmpty) {
         return taskId;
       }
