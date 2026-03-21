@@ -257,13 +257,13 @@ const CHECK_MONITOR_RUNTIME_OPTIONS = {
   memory: '1GiB' as const,
   secrets: ['GITHUB_TOKEN'],
 };
-const AGENT_TASK_MAX_RUNTIME_MS = 12 * 60_000;
+const AGENT_TASK_MAX_RUNTIME_MS = 8 * 60_000;
 const AGENT_WORKER_LEASE_MS = 90_000;
 const AGENT_WORKER_HEARTBEAT_MS = 20_000;
 const AGENT_TASK_MAX_RETRIES_NORMAL = 3;
 const AGENT_TASK_MAX_RETRIES_DEEP = 5;
-const AGENT_TASK_MAX_TOKEN_BUDGET_NORMAL = 4_200;
-const AGENT_TASK_MAX_TOKEN_BUDGET_DEEP = 9_000;
+const AGENT_TASK_MAX_TOKEN_BUDGET_NORMAL = 30_000;
+const AGENT_TASK_MAX_TOKEN_BUDGET_DEEP = 60_000;
 const AGENT_TASK_MAX_FILE_TOUCHES_NORMAL = 6;
 const AGENT_TASK_MAX_FILE_TOUCHES_DEEP = 14;
 const AGENT_TASK_STALE_RUNNING_LOCK_MS = 15 * 60_000;
@@ -1007,11 +1007,30 @@ interface RepoExecutionObserver {
   }) => Promise<void> | void;
 }
 
-function requireAuth(request: CallableRequest<unknown>) {
-  if (!request.auth?.uid) {
-    throw new HttpsError('unauthenticated', 'Authentication is required.');
+async function requireAuth(request: CallableRequest<unknown>): Promise<string> {
+  // Primary path: the callable SDK included the Authorization header and
+  // Firebase already verified the token, populating `request.auth`.
+  if (request.auth?.uid) {
+    return request.auth.uid;
   }
-  return request.auth.uid;
+
+  // Fallback path: on iOS the cloud_functions SDK sometimes fails to include
+  // the Authorization header (native FIRAuth stale state). The client passes
+  // the Dart-side ID token inside the payload as `_idToken`. Verify it
+  // manually via Firebase Admin Auth and return the UID.
+  const data = (request.data ?? {}) as Record<string, unknown>;
+  const fallbackToken =
+    typeof data._idToken === 'string' ? data._idToken.trim() : '';
+  if (fallbackToken) {
+    try {
+      const decoded = await getAuth().verifyIdToken(fallbackToken);
+      return decoded.uid;
+    } catch {
+      // Token verification failed — fall through to throw unauthenticated.
+    }
+  }
+
+  throw new HttpsError('unauthenticated', 'Authentication is required.');
 }
 
 function asString(value: unknown, field: string) {
@@ -6106,13 +6125,13 @@ function buildAgentRepoExecutionObserver(params: {
           repoSizeClass: details.repoSizeClass,
           contextStrategy: details.contextStrategy,
           focusedModules: details.focusedModules ?? [],
-          repoCoverageNotice: details.repoCoverageNotice,
-          moduleCount: details.moduleCount,
-          architectureZoneCount: details.architectureZoneCount,
-          explorationPassCount: details.explorationPassCount,
-          hydratedPathCount: details.hydratedPathCount,
-          contextPlannerProvider: details.contextPlannerProvider,
-          executionPlannerProvider: details.executionPlannerProvider,
+          repoCoverageNotice: details.repoCoverageNotice ?? null,
+          moduleCount: details.moduleCount ?? null,
+          architectureZoneCount: details.architectureZoneCount ?? null,
+          explorationPassCount: details.explorationPassCount ?? null,
+          hydratedPathCount: details.hydratedPathCount ?? null,
+          contextPlannerProvider: details.contextPlannerProvider ?? null,
+          executionPlannerProvider: details.executionPlannerProvider ?? null,
         },
       });
       await recordPassiveAgentToolExecution({
@@ -6178,9 +6197,9 @@ function buildAgentRepoExecutionObserver(params: {
           architectureFindings: details.architectureFindings,
           uncertainties: details.uncertainties,
           executionMemorySummary: details.executionMemorySummary,
-          repoCoverageNotice: details.repoCoverageNotice,
-          moduleCount: details.moduleCount,
-          architectureZoneCount: details.architectureZoneCount,
+          repoCoverageNotice: details.repoCoverageNotice ?? null,
+          moduleCount: details.moduleCount ?? null,
+          architectureZoneCount: details.architectureZoneCount ?? null,
           done: details.done,
         },
       });
@@ -8437,9 +8456,85 @@ async function resolveApprovedAgentTaskContinuation(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Conversational prompt short-circuit
+// ---------------------------------------------------------------------------
+// Detects prompts that are greetings, small-talk, or general questions with
+// no code intent and responds with a lightweight AI call instead of spinning
+// up the full repo-inspection pipeline.
+
+const CONVERSATIONAL_PATTERNS: RegExp[] = [
+  // Greetings / small-talk
+  /^\s*(hi|hello|hey|yo|sup|howdy|hiya|what'?s? up|good (morning|afternoon|evening))\s*[!?.]*\s*$/i,
+  // Single-word / very short non-code prompts
+  /^\s*(thanks|thank you|ok|okay|cool|sure|yes|no|nope|yep|bye|goodbye)\s*[!?.]*\s*$/i,
+  // "Who are you" / identity questions
+  /^\s*(who|what) are you\s*\??\s*$/i,
+  // "How are you" / wellbeing
+  /^\s*how (are|r) (you|u)\s*\??\s*$/i,
+  // "Can you help me" without specifics
+  /^\s*can you help( me)?\s*\??\s*$/i,
+  // "What can you do" / capability questions
+  /^\s*what (can|do) you do\s*\??\s*$/i,
+];
+
+function isConversationalPrompt(prompt: string): boolean {
+  const trimmed = prompt.trim();
+  // Very short prompts (≤ 12 chars) with no code indicators are likely conversational.
+  if (trimmed.length <= 12 && !/[{}<>()=;/\\|`]/.test(trimmed)) {
+    return CONVERSATIONAL_PATTERNS.some(pattern => pattern.test(trimmed));
+  }
+  return CONVERSATIONAL_PATTERNS.some(pattern => pattern.test(trimmed));
+}
+
+async function handleConversationalPrompt(
+  ownerId: string,
+  taskId: string,
+  prompt: string,
+): Promise<boolean> {
+  if (!isConversationalPrompt(prompt)) {
+    return false;
+  }
+  // Pick the cheapest available provider for the lightweight reply.
+  const lightProvider: AiProviderName =
+    lookupProviderToken('anthropic') ? 'anthropic'
+      : lookupProviderToken('openai') ? 'openai'
+        : 'gemini';
+
+  let replyText: string;
+  try {
+    const result = await callProviderTextCompletion({
+      provider: lightProvider,
+      systemPrompt:
+        'You are ForgeAI, a mobile AI Git client that helps users review, edit, and ship code. ' +
+        'The user sent a conversational message instead of a code task. Reply in 1-2 short sentences. ' +
+        'Be friendly and briefly remind them you can help with code tasks like implementing features, ' +
+        'fixing bugs, refactoring, opening PRs, etc.',
+      userPrompt: prompt,
+      maxOutputTokens: 200,
+      temperature: 0.7,
+      modelOverride: lightProvider === 'anthropic' ? 'claude-haiku-4-5-20251001' : null,
+    });
+    replyText = result.text;
+  } catch {
+    replyText =
+      "Hey! I'm ForgeAI — I help with code tasks like implementing features, fixing bugs, " +
+      'refactoring, and opening PRs. What would you like me to work on?';
+  }
+
+  await completeAgentTaskNow(ownerId, taskId, replyText);
+  return true;
+}
+
 async function processAgentTaskRun(ownerId: string, taskId: string, runToken: number) {
   let task = await assertAgentTaskStillRunnable(ownerId, taskId, runToken);
   const taskReference = agentTaskRef(ownerId, taskId);
+
+  // Fast path: respond to conversational / non-code prompts without repo context.
+  if (await handleConversationalPrompt(ownerId, taskId, task.prompt)) {
+    return;
+  }
+
   const pendingApproval = task.pendingApproval;
   if (pendingApproval && pendingApproval.status !== 'pending') {
     if (pendingApproval.status === 'rejected') {
@@ -11719,7 +11814,7 @@ export const getProviderConfig = onCall(BASE_CALLABLE_OPTIONS, async request => 
 
 export const syncProviderConnection = onCall(BASE_CALLABLE_OPTIONS, async request => {
   const startedAt = Date.now();
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = request.data as Partial<ProviderConnectionSyncData>;
   const provider = asEnum(data.provider, 'provider', ['github', 'github'] as const);
   const accessToken = asString(data.accessToken, 'accessToken');
@@ -11811,7 +11906,7 @@ export const syncProviderConnection = onCall(BASE_CALLABLE_OPTIONS, async reques
 });
 
 export const listProviderRepositories = onCall(GIT_CALLABLE_OPTIONS, async request => {
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = (request.data ?? {}) as ProviderRepositoryListData;
   const provider = asEnum(data.provider, 'provider', ['github', 'github'] as const);
   const query = asOptionalString(data.query);
@@ -11839,7 +11934,7 @@ export const listProviderRepositories = onCall(GIT_CALLABLE_OPTIONS, async reque
 
 export const connectRepository = onCall(GIT_CALLABLE_OPTIONS, async request => {
   const startedAt = Date.now();
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = request.data as Partial<RepositoryConnectionData>;
   const provider = asEnum(data.provider, 'provider', ['github', 'github'] as const);
   const repository = asOptionalString(data.repository);
@@ -12043,7 +12138,7 @@ export const createProjectRepository = onCall(
   },
   async request => {
     const startedAt = Date.now();
-    const ownerId = requireAuth(request);
+    const ownerId = await requireAuth(request);
     const data = (request.data ?? {}) as CreateProjectRepositoryData;
     const provider = asEnum(data.provider ?? 'github', 'provider', ['github', 'github'] as const);
     const idea = asString(data.idea, 'idea');
@@ -12294,7 +12389,7 @@ export const createProjectRepository = onCall(
 
 export const syncRepository = onCall(GIT_CALLABLE_OPTIONS, async request => {
   const startedAt = Date.now();
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = request.data as Partial<RepositorySyncData>;
   const repoId = asOptionalString(data.repoId);
 
@@ -12549,7 +12644,7 @@ function extractPlannedEditsFromReply(reply: string, prompt: string): AskRepoPla
 // with old clients only. New code must not call this function.
 export const askRepo = onCall(GIT_AND_AI_CALLABLE_OPTIONS, async request => {
   const startedAt = Date.now();
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = (request.data ?? {}) as AskRepoData;
   const prompt = asString(data.prompt, 'prompt');
   const dangerMode = data.dangerMode === true;
@@ -12823,7 +12918,7 @@ Be concise, actionable, and sound like a person.`;
 
 export const executeRepoTask = onCall(GIT_AND_AI_CALLABLE_OPTIONS, async request => {
   const startedAt = Date.now();
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = (request.data ?? {}) as Partial<RepoExecutionData>;
   const repoId = asString(data.repoId, 'repoId');
   const prompt = asString(data.prompt, 'prompt');
@@ -12968,7 +13063,7 @@ export const executeRepoTask = onCall(GIT_AND_AI_CALLABLE_OPTIONS, async request
 // will be removed in a future release. New code must not call this function.
 export const applyRepoExecution = onCall(GIT_CALLABLE_OPTIONS, async request => {
   const startedAt = Date.now();
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = (request.data ?? {}) as Partial<ApplyRepoExecutionData>;
   const repoId = asString(data.repoId, 'repoId');
   const sessionId = asString(data.sessionId, 'sessionId');
@@ -12993,7 +13088,7 @@ export const applyRepoExecution = onCall(GIT_CALLABLE_OPTIONS, async request => 
 });
 
 export const enqueueAgentTask = onCall(GIT_AND_AI_CALLABLE_OPTIONS, async request => {
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = (request.data ?? {}) as Partial<EnqueueAgentTaskData>;
   const repoId = asString(data.repoId, 'repoId');
   const prompt = asString(data.prompt, 'prompt');
@@ -13143,7 +13238,7 @@ interface ShellExecAgentTaskData {
 }
 
 export const shellExecAgentTask = onCall(GIT_CALLABLE_OPTIONS, async request => {
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = (request.data ?? {}) as Partial<ShellExecAgentTaskData>;
   const taskId = asString(data.taskId, 'taskId');
   const command = asString(data.command, 'command');
@@ -13295,7 +13390,7 @@ export const indexRepoEmbeddings = onCall(
 );
 
 export const cancelAgentTask = onCall(GIT_CALLABLE_OPTIONS, async request => {
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = (request.data ?? {}) as Partial<AgentTaskControlData>;
   const taskId = asString(data.taskId, 'taskId');
   const taskSnapshot = await agentTaskRef(ownerId, taskId).get();
@@ -13338,7 +13433,7 @@ export const cancelAgentTask = onCall(GIT_CALLABLE_OPTIONS, async request => {
 });
 
 export const pauseAgentTask = onCall(GIT_CALLABLE_OPTIONS, async request => {
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = (request.data ?? {}) as Partial<AgentTaskControlData>;
   const taskId = asString(data.taskId, 'taskId');
   const taskSnapshot = await agentTaskRef(ownerId, taskId).get();
@@ -13371,7 +13466,7 @@ export const pauseAgentTask = onCall(GIT_CALLABLE_OPTIONS, async request => {
 });
 
 export const resolveAgentTaskApproval = onCall(GIT_CALLABLE_OPTIONS, async request => {
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = (request.data ?? {}) as Partial<ResolveAgentTaskApprovalData>;
   const taskId = asString(data.taskId, 'taskId');
   const decision = asEnum(data.decision, 'decision', ['approved', 'rejected'] as const);
@@ -13781,7 +13876,7 @@ export const recoverStaleAgentWorkers = onSchedule(
 
 export const loadRepositoryFile = onCall(GIT_CALLABLE_OPTIONS, async request => {
   const startedAt = Date.now();
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = request.data as Partial<RepositoryFileLoadData>;
   const repoId = asString(data.repoId, 'repoId');
   const filePath = asString(data.filePath, 'filePath');
@@ -13828,7 +13923,7 @@ export const loadRepositoryFile = onCall(GIT_CALLABLE_OPTIONS, async request => 
 // not call this function.
 export const suggestChange = onCall(GIT_AND_AI_CALLABLE_OPTIONS, async request => {
   const startedAt = Date.now();
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = request.data as Partial<SuggestChangeData>;
   const repoId = asString(data.repoId, 'repoId');
   const filePath = asString(data.filePath, 'filePath');
@@ -14025,7 +14120,7 @@ export const suggestChange = onCall(GIT_AND_AI_CALLABLE_OPTIONS, async request =
 
 export const submitGitAction = onCall(GIT_CALLABLE_OPTIONS, async request => {
   const startedAt = Date.now();
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = request.data as Partial<GitActionData>;
   const repoId = asString(data.repoId, 'repoId');
   const provider = asEnum(data.provider, 'provider', ['github', 'github'] as const);
@@ -14460,7 +14555,7 @@ interface ListRepoWorkflowsData {
 }
 
 export const listRepoWorkflows = onCall(GIT_CALLABLE_OPTIONS, async request => {
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = (request.data ?? {}) as ListRepoWorkflowsData;
   const repoId = asString(data.repoId, 'repoId');
   const repo = await ensureRepositoryAccess(repoId, ownerId);
@@ -14482,7 +14577,7 @@ export const listRepoWorkflows = onCall(GIT_CALLABLE_OPTIONS, async request => {
 
 export const submitCheckAction = onCall(GIT_CALLABLE_OPTIONS, async request => {
   const startedAt = Date.now();
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = request.data as Partial<CheckActionData>;
   const repoId = asString(data.repoId, 'repoId');
   const provider = asEnum(data.provider, 'provider', ['github', 'github'] as const);
@@ -14957,7 +15052,7 @@ export const monitorCheckRun = onDocumentWritten(
 );
 
 export const reserveTokens = onCall(BASE_CALLABLE_OPTIONS, async request => {
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = request.data as Partial<TokenActionData>;
   const repoId = asString(data.repoId, 'repoId');
   const actionType = asEnum(data.actionType, 'actionType', BILLABLE_ACTION_TYPES);
@@ -14988,7 +15083,7 @@ export const reserveTokens = onCall(BASE_CALLABLE_OPTIONS, async request => {
 });
 
 export const releaseTokens = onCall(BASE_CALLABLE_OPTIONS, async request => {
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = request.data as Partial<TokenActionData>;
   const repoId = asString(data.repoId, 'repoId');
   const actionType = asEnum(data.actionType, 'actionType', BILLABLE_ACTION_TYPES);
@@ -15019,7 +15114,7 @@ export const releaseTokens = onCall(BASE_CALLABLE_OPTIONS, async request => {
 });
 
 export const captureTokens = onCall(BASE_CALLABLE_OPTIONS, async request => {
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = request.data as Partial<TokenActionData>;
   const repoId = asString(data.repoId, 'repoId');
   const actionType = asEnum(data.actionType, 'actionType', BILLABLE_ACTION_TYPES);
@@ -15053,7 +15148,7 @@ export const captureTokens = onCall(BASE_CALLABLE_OPTIONS, async request => {
 
 /** Returns subscription state from wallet for the current user (for paywall/UI). */
 export const getSubscriptionState = onCall(BASE_CALLABLE_OPTIONS, async request => {
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const walletRef = db.collection('wallets').doc(ownerId);
   const snap = await walletRef.get();
   const data = snap.data();
@@ -15091,7 +15186,7 @@ interface SyncPurchasePayload {
 
 /** Validates IAP receipt (iOS/Android) and updates wallet (subscription or token top-up). */
 export const syncPurchase = onCall(IAP_CALLABLE_OPTIONS, async request => {
-  const ownerId = requireAuth(request);
+  const ownerId = await requireAuth(request);
   const data = request.data as Partial<SyncPurchasePayload>;
   const platform = asString(data.platform ?? '', 'platform');
   const productId = asString(data.productId ?? '', 'productId');

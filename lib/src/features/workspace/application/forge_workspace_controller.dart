@@ -697,122 +697,178 @@ jobs:
         value = value.copyWith(isBootstrapping: false);
         return;
       }
+
+      // Force a fresh ID token before opening Firestore streams.
+      // On iOS the native Firebase Auth SDK sometimes has a valid session
+      // but Firestore's gRPC channel starts before the token propagates,
+      // causing immediate permission-denied errors on every snapshot listener.
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null) {
+        await currentUser.getIdToken(true);
+      }
+
       await repository.ensureBootstrap(authState.account!);
 
       _promptThreadsSubscription = repository
           .watchPromptThreads(authState.account!.id)
-          .listen((promptThreads) async {
-            _hasLoadedPromptThreads = true;
-            if (promptThreads.isEmpty) {
-              _ensurePromptThread(preferredRepoId: value.selectedRepository?.id);
-              return;
-            }
-            final selectedId = promptThreads.any(
-                  (thread) => thread.id == value.selectedPromptThreadId,
-                )
-                ? value.selectedPromptThreadId
-                : (promptThreads.isNotEmpty ? promptThreads.first.id : null);
-            value = value.copyWith(
-              promptThreads: promptThreads,
-              selectedPromptThreadId: selectedId,
-              clearSelectedPromptThread: promptThreads.isEmpty,
-            );
-            final selectedThread = _findPromptThreadById(selectedId);
-            final selectedRepo = _findRepositoryById(selectedThread?.repoId);
-            if (selectedRepo != null &&
-                value.selectedRepository?.id != selectedRepo.id) {
-              await selectRepository(selectedRepo);
-            }
-          });
+          .listen(
+            (promptThreads) async {
+              _hasLoadedPromptThreads = true;
+              if (promptThreads.isEmpty) {
+                _ensurePromptThread(preferredRepoId: value.selectedRepository?.id);
+                return;
+              }
+              final selectedId = promptThreads.any(
+                    (thread) => thread.id == value.selectedPromptThreadId,
+                  )
+                  ? value.selectedPromptThreadId
+                  : (promptThreads.isNotEmpty ? promptThreads.first.id : null);
+              value = value.copyWith(
+                promptThreads: promptThreads,
+                selectedPromptThreadId: selectedId,
+                clearSelectedPromptThread: promptThreads.isEmpty,
+              );
+              final selectedThread = _findPromptThreadById(selectedId);
+              final selectedRepo = _findRepositoryById(selectedThread?.repoId);
+              if (selectedRepo != null &&
+                  value.selectedRepository?.id != selectedRepo.id) {
+                await selectRepository(selectedRepo);
+              }
+            },
+            onError: (e) => _handleFirestoreStreamError(e, 'promptThreads'),
+          );
 
       _agentTasksSubscription = repository
           .watchAgentTasks(authState.account!.id)
-          .listen((agentTasks) async {
-            final preferredTaskId = agentTasks.any(
-                  (task) => task.id == value.selectedAgentTaskId,
-                )
-                ? value.selectedAgentTaskId
-                : (() {
-                    for (final task in agentTasks) {
-                      if (task.isActive) {
-                        return task.id;
+          .listen(
+            (agentTasks) async {
+              final preferredTaskId = agentTasks.any(
+                    (task) => task.id == value.selectedAgentTaskId,
+                  )
+                  ? value.selectedAgentTaskId
+                  : (() {
+                      for (final task in agentTasks) {
+                        if (task.isActive) {
+                          return task.id;
+                        }
                       }
-                    }
-                    return agentTasks.isNotEmpty ? agentTasks.first.id : null;
-                  }());
-            value = value.copyWith(
-              agentTasks: agentTasks,
-              selectedAgentTaskId: preferredTaskId,
-              clearSelectedAgentTask: agentTasks.isEmpty,
-            );
-            await _bindAgentTaskEvents();
-            await _syncSelectedAgentTaskExecution();
-          });
+                      return agentTasks.isNotEmpty ? agentTasks.first.id : null;
+                    }());
+              value = value.copyWith(
+                agentTasks: agentTasks,
+                selectedAgentTaskId: preferredTaskId,
+                clearSelectedAgentTask: agentTasks.isEmpty,
+              );
+              await _bindAgentTaskEvents();
+              await _syncSelectedAgentTaskExecution();
+            },
+            onError: (e) => _handleFirestoreStreamError(e, 'agentTasks'),
+          );
 
       _connectionsSubscription = repository
           .watchConnections(authState.account!.id)
-          .listen((connections) {
-            value = value.copyWith(connections: connections);
-          });
+          .listen(
+            (connections) {
+              value = value.copyWith(connections: connections);
+            },
+            onError: (e) => _handleFirestoreStreamError(e, 'connections'),
+          );
 
       _activitiesSubscription = repository
           .watchActivities(authState.account!.id)
-          .listen((activities) {
-            value = value.copyWith(activities: activities);
-          });
+          .listen(
+            (activities) {
+              value = value.copyWith(activities: activities);
+            },
+            onError: (e) => _handleFirestoreStreamError(e, 'activities'),
+          );
 
       _checksSubscription = repository
           .watchChecks(authState.account!.id)
-          .listen((checks) {
-            value = value.copyWith(checks: checks);
-          });
+          .listen(
+            (checks) {
+              value = value.copyWith(checks: checks);
+            },
+            onError: (e) => _handleFirestoreStreamError(e, 'checks'),
+          );
 
       _notificationPreferencesSubscription = repository
           .watchNotificationPreferences(authState.account!.id)
-          .listen((notificationPreferences) {
-            value = value.copyWith(
-              notificationPreferences: notificationPreferences,
-            );
-          });
+          .listen(
+            (notificationPreferences) {
+              value = value.copyWith(
+                notificationPreferences: notificationPreferences,
+              );
+            },
+            onError: (e) => _handleFirestoreStreamError(e, 'notificationPrefs'),
+          );
 
       _walletSubscription = repository
           .watchWallet(authState.account!.id)
-          .listen((wallet) {
-            value = value.copyWith(wallet: wallet);
-          });
+          .listen(
+            (wallet) {
+              value = value.copyWith(wallet: wallet);
+            },
+            onError: (e) => _handleFirestoreStreamError(e, 'wallet'),
+          );
 
       _tokenLogsSubscription = repository
           .watchTokenLogs(authState.account!.id)
-          .listen((tokenLogs) {
-            value = value.copyWith(tokenLogs: tokenLogs);
-          });
+          .listen(
+            (tokenLogs) {
+              value = value.copyWith(tokenLogs: tokenLogs);
+            },
+            onError: (e) => _handleFirestoreStreamError(e, 'tokenLogs'),
+          );
 
       _repositoriesSubscription = repository
           .watchRepositories(authState.account!.id)
-          .listen((repositories) async {
-            final nextSelected =
-                _resolveSelectedRepository(repositories) ??
-                (repositories.isNotEmpty ? repositories.first : null);
-            value = value.copyWith(
-              repositories: repositories,
-              selectedRepository: nextSelected,
-              selectedBranch: nextSelected?.defaultBranch,
-              clearRepository: nextSelected == null,
-              clearSelectedBranch: nextSelected == null,
-              repoWorkflows: const [],
-            );
-            if (_hasLoadedPromptThreads) {
-              _ensurePromptThread(preferredRepoId: nextSelected?.id);
-            }
-            _scheduleRepositoryAutoSync(repositories);
-            await _bindFiles();
-          });
+          .listen(
+            (repositories) async {
+              final nextSelected =
+                  _resolveSelectedRepository(repositories) ??
+                  (repositories.isNotEmpty ? repositories.first : null);
+              value = value.copyWith(
+                repositories: repositories,
+                selectedRepository: nextSelected,
+                selectedBranch: nextSelected?.defaultBranch,
+                clearRepository: nextSelected == null,
+                clearSelectedBranch: nextSelected == null,
+                repoWorkflows: const [],
+              );
+              if (_hasLoadedPromptThreads) {
+                _ensurePromptThread(preferredRepoId: nextSelected?.id);
+              }
+              _scheduleRepositoryAutoSync(repositories);
+              await _bindFiles();
+            },
+            onError: (e) => _handleFirestoreStreamError(e, 'repositories'),
+          );
 
       value = value.copyWith(isBootstrapping: false, clearError: true);
     } catch (error) {
       value = value.copyWith(
         isBootstrapping: false,
         errorMessage: forgeUserFriendlyMessage(error),
+      );
+    }
+  }
+
+  /// Handles errors emitted by long-lived Firestore stream subscriptions.
+  ///
+  /// A [FirebaseException] with code `permission-denied` typically means the
+  /// user's auth token is stale or the security rules rejected the query.
+  /// Rather than just showing an error, we attempt a one-shot token refresh
+  /// and re-bind all streams. If the refresh itself fails we surface a
+  /// sign-out suggestion.
+  void _handleFirestoreStreamError(Object error, [String? label]) {
+    if (error is FirebaseException && error.code == 'permission-denied') {
+      unawaited(
+        _telemetry.recordError(
+          error,
+          StackTrace.current,
+          reason: 'firestore_stream_permission_denied${label != null ? ':$label' : ''}',
+        ),
       );
     }
   }

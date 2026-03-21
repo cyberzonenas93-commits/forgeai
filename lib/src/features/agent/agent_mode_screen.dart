@@ -12,7 +12,6 @@ import 'agent_task_details_screen.dart';
 import 'agent_ui_utils.dart';
 import 'widgets/active_step_header.dart';
 import 'widgets/approval_action_sheet.dart';
-import 'widgets/empty_workspace_state.dart';
 import 'widgets/failure_state_card.dart';
 import 'widgets/files_touched_panel.dart';
 import 'widgets/live_event_row.dart';
@@ -36,8 +35,6 @@ class AgentModeScreen extends StatefulWidget {
 }
 
 class _AgentModeScreenState extends State<AgentModeScreen> {
-  final TextEditingController _promptController = TextEditingController();
-  final FocusNode _promptFocusNode = FocusNode();
   final ScrollController _timelineScrollController = ScrollController();
 
   int _lastTimelineEventCount = 0;
@@ -47,8 +44,6 @@ class _AgentModeScreenState extends State<AgentModeScreen> {
 
   @override
   void dispose() {
-    _promptController.dispose();
-    _promptFocusNode.dispose();
     _timelineScrollController.dispose();
     super.dispose();
   }
@@ -86,10 +81,6 @@ class _AgentModeScreenState extends State<AgentModeScreen> {
             ? state.currentExecutionSession
             : null;
         final repoLabel = selectedRepo?.repoLabel ?? 'No workspace selected';
-        final canSubmit = selectedRepo != null &&
-            _promptController.text.trim().isNotEmpty &&
-            !state.isSubmittingAgentTask;
-
         _ensurePrimaryTaskSelection(
           state,
           repoTasks,
@@ -102,72 +93,59 @@ class _AgentModeScreenState extends State<AgentModeScreen> {
           isResolving: state.isResolvingAgentTask,
         );
 
+        final taskTitle = displayedTask != null
+            ? (displayedTask.prompt.length > 40
+                ? '${displayedTask.prompt.substring(0, 40)}…'
+                : displayedTask.prompt)
+            : 'Task Details';
+
         return Scaffold(
-          backgroundColor: Colors.transparent,
-          body: ForgeScreen(
-            padding: EdgeInsets.zero,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+          backgroundColor: ForgePalette.surface,
+          appBar: AppBar(
+            backgroundColor: ForgePalette.surface,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back_ios_rounded, size: 20),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ForgeReveal(
-                  child: _WorkspaceBanner(
-                    repoLabel: repoLabel,
-                    hasSelection: selectedRepo != null,
-                    queueCount: queuedTasks.length,
-                    isLocked: activeTask != null,
-                    isDeepMode: state.repoExecutionDeepMode,
-                    onToggleDeepMode: selectedRepo == null
-                        ? null
-                        : widget.controller.setRepoExecutionDeepMode,
-                    agentTrustLevel: state.agentTrustLevel,
-                    onTrustLevelChanged: selectedRepo == null
-                        ? null
-                        : widget.controller.setAgentTrustLevel,
+                Text(
+                  taskTitle,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  repoLabel,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: ForgePalette.textSecondary,
                   ),
                 ),
-                const SizedBox(height: 16),
-                if (selectedRepo == null)
-                  ForgeReveal(
-                    delay: const Duration(milliseconds: 60),
-                    child: EmptyWorkspaceState(
-                      repoLabel: null,
-                      onUsePrompt: _applySuggestedPrompt,
+              ],
+            ),
+            actions: [
+              if (displayedTask != null)
+                TaskStatusChip(task: displayedTask),
+              const SizedBox(width: 12),
+            ],
+          ),
+          body: ForgeScreen(
+            padding: EdgeInsets.zero,
+            child: displayedTask == null
+                ? Center(
+                    child: Text(
+                      'No task selected',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: ForgePalette.textSecondary,
+                          ),
                     ),
                   )
-                else if (displayedTask == null) ...[
-                  ForgeReveal(
-                    delay: const Duration(milliseconds: 60),
-                    child: EmptyWorkspaceState(
-                      repoLabel: repoLabel,
-                      onUsePrompt: _applySuggestedPrompt,
-                    ),
-                  ),
-                  if (queuedTasks.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    _QueuePreviewPanel(
-                      queuedTasks: queuedTasks,
-                      selectedTaskId: state.selectedAgentTaskId,
-                      repoLabelForTask: _repoLabelForTask,
-                      onOpenQueue: () => _showQueueSheet(
-                        queuedTasks: queuedTasks,
-                        activeTask: activeTask,
-                      ),
-                      onSelectTask: _focusTask,
-                      onRemove: (taskId) => _cancelTask(
-                        taskId,
-                        isQueued: true,
-                      ),
-                    ),
-                  ],
-                  if (recentTasks.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    _RecentTasksPanel(
-                      tasks: recentTasks,
-                      repoLabelForTask: _repoLabelForTask,
-                      onOpenDetails: _openTaskDetails,
-                    ),
-                  ],
-                ] else ...[
+                : ListView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+              children: [
                   if (displayedTask.isQueued &&
                       activeTask != null &&
                       activeTask.id != displayedTask.id) ...[
@@ -311,30 +289,8 @@ class _AgentModeScreenState extends State<AgentModeScreen> {
                       onOpenDetails: _openTaskDetails,
                     ),
                   ],
-                ],
-                const SizedBox(height: 128),
+                const SizedBox(height: 32),
               ],
-            ),
-          ),
-          bottomNavigationBar: SafeArea(
-            top: false,
-            child: _PromptComposer(
-              controller: _promptController,
-              focusNode: _promptFocusNode,
-              repoLabel: repoLabel,
-              isDeepMode: state.repoExecutionDeepMode,
-              hasSelection: selectedRepo != null,
-              queueCount: queuedTasks.length,
-              isSubmitting: state.isSubmittingAgentTask,
-              activeTask: activeTask,
-              canSubmit: canSubmit,
-              onToggleDeepMode: selectedRepo == null
-                  ? null
-                  : widget.controller.setRepoExecutionDeepMode,
-              onSubmit: () => _submitPrompt(
-                activeTask: activeTask,
-                queueDepth: queuedTasks.length,
-              ),
             ),
           ),
         );
@@ -520,37 +476,6 @@ class _AgentModeScreenState extends State<AgentModeScreen> {
           ? _openDiffView
           : null,
     );
-  }
-
-  Future<void> _submitPrompt({
-    required ForgeAgentTask? activeTask,
-    required int queueDepth,
-  }) async {
-    try {
-      await widget.controller.enqueueAgentTask(
-        prompt: _promptController.text.trim(),
-      );
-      if (!mounted) {
-        return;
-      }
-      _promptController.clear();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            activeTask == null
-                ? 'Work session started.'
-                : 'Queued as #${queueDepth + 1} behind the active run.',
-          ),
-        ),
-      );
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(forgeUserFriendlyMessage(error))),
-      );
-    }
   }
 
   Future<void> _focusTask(String taskId) async {
@@ -829,13 +754,6 @@ class _AgentModeScreenState extends State<AgentModeScreen> {
         );
       },
     );
-  }
-
-  void _applySuggestedPrompt(String prompt) {
-    _promptController
-      ..text = prompt
-      ..selection = TextSelection.collapsed(offset: prompt.length);
-    _promptFocusNode.requestFocus();
   }
 
   void _openDiffView() {
@@ -1371,155 +1289,6 @@ List<String> _stringListValue(Object? value) {
       .map((item) => item.trim())
       .where((item) => item.isNotEmpty)
       .toList();
-}
-
-class _WorkspaceBanner extends StatelessWidget {
-  const _WorkspaceBanner({
-    required this.repoLabel,
-    required this.hasSelection,
-    required this.queueCount,
-    required this.isLocked,
-    required this.isDeepMode,
-    required this.onToggleDeepMode,
-    required this.agentTrustLevel,
-    required this.onTrustLevelChanged,
-  });
-
-  final String repoLabel;
-  final bool hasSelection;
-  final int queueCount;
-  final bool isLocked;
-  final bool isDeepMode;
-  final ValueChanged<bool>? onToggleDeepMode;
-  final AgentTrustLevel agentTrustLevel;
-  final ValueChanged<AgentTrustLevel>? onTrustLevelChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return ForgePanel(
-      highlight: hasSelection,
-      padding: const EdgeInsets.all(22),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Work Session',
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: ForgePalette.glowAccent,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.3,
-                ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Live agent execution',
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            hasSelection
-                ? 'Watch the agent map the repo, edit files, validate changes, and queue follow-up runs without breaking flow.'
-                : 'Select a repository to start a live run with repo inspection, queueing, approvals, and a durable execution log.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: ForgePalette.textSecondary,
-                ),
-          ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              ForgePill(
-                label: repoLabel,
-                icon: Icons.folder_copy_rounded,
-                color: hasSelection
-                    ? ForgePalette.primaryAccent
-                    : ForgePalette.textMuted,
-              ),
-              ForgePill(
-                label: queueCount == 0 ? 'Queue empty' : '$queueCount queued',
-                icon: Icons.format_list_numbered_rounded,
-                color: queueCount == 0
-                    ? ForgePalette.textMuted
-                    : ForgePalette.primaryAccent,
-              ),
-              ForgePill(
-                label: isLocked ? 'Workspace locked' : 'Workspace idle',
-                icon: isLocked ? Icons.lock_clock_rounded : Icons.lock_open_rounded,
-                color: isLocked ? ForgePalette.warning : ForgePalette.success,
-              ),
-              FilterChip(
-                selected: isDeepMode,
-                onSelected: onToggleDeepMode,
-                avatar: Icon(
-                  isDeepMode
-                      ? Icons.psychology_rounded
-                      : Icons.flash_on_rounded,
-                  size: 18,
-                  color: isDeepMode
-                      ? ForgePalette.textPrimary
-                      : ForgePalette.textSecondary,
-                ),
-                label: Text(isDeepMode ? 'Deep mode' : 'Normal mode'),
-              ),
-              // ── Auto-execute mode selector ──
-              PopupMenuButton<AgentTrustLevel>(
-                initialValue: agentTrustLevel,
-                onSelected: onTrustLevelChanged,
-                tooltip: 'Execution mode',
-                itemBuilder: (_) => AgentTrustLevel.values
-                    .map(
-                      (level) => PopupMenuItem(
-                        value: level,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              level.label,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                              ),
-                            ),
-                            Text(
-                              level.description,
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: ForgePalette.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                    .toList(),
-                child: Chip(
-                  avatar: Icon(
-                    agentTrustLevel == AgentTrustLevel.supervised
-                        ? Icons.supervised_user_circle_rounded
-                        : agentTrustLevel == AgentTrustLevel.autoApproveOnSuccess
-                            ? Icons.auto_mode_rounded
-                            : Icons.rocket_launch_rounded,
-                    size: 16,
-                    color: agentTrustLevel == AgentTrustLevel.supervised
-                        ? ForgePalette.textSecondary
-                        : ForgePalette.success,
-                  ),
-                  label: Text(agentTrustLevel.label),
-                  side: BorderSide(
-                    color: agentTrustLevel == AgentTrustLevel.supervised
-                        ? ForgePalette.textMuted
-                        : ForgePalette.success,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _TaskControlsPanel extends StatelessWidget {
@@ -2113,172 +1882,3 @@ class _RecentTaskCard extends StatelessWidget {
   }
 }
 
-class _PromptComposer extends StatelessWidget {
-  const _PromptComposer({
-    required this.controller,
-    required this.focusNode,
-    required this.repoLabel,
-    required this.isDeepMode,
-    required this.hasSelection,
-    required this.queueCount,
-    required this.isSubmitting,
-    required this.activeTask,
-    required this.canSubmit,
-    required this.onToggleDeepMode,
-    required this.onSubmit,
-  });
-
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final String repoLabel;
-  final bool isDeepMode;
-  final bool hasSelection;
-  final int queueCount;
-  final bool isSubmitting;
-  final ForgeAgentTask? activeTask;
-  final bool canSubmit;
-  final ValueChanged<bool>? onToggleDeepMode;
-  final VoidCallback onSubmit;
-
-  @override
-  Widget build(BuildContext context) {
-    final queueLabel = activeTask == null
-        ? 'Runs now'
-        : (queueCount == 0 ? 'Queues next' : 'Queues as #${queueCount + 1}');
-    return AnimatedPadding(
-      duration: const Duration(milliseconds: 180),
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      child: ForgePanel(
-        padding: const EdgeInsets.all(16),
-        backgroundColor: ForgePalette.backgroundSecondary.withValues(alpha: 0.96),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                ForgePill(
-                  label: repoLabel,
-                  icon: Icons.folder_copy_rounded,
-                  color: hasSelection
-                      ? ForgePalette.primaryAccent
-                      : ForgePalette.textMuted,
-                ),
-                ForgePill(
-                  label: queueLabel,
-                  icon: activeTask == null
-                      ? Icons.play_arrow_rounded
-                      : Icons.schedule_rounded,
-                  color: activeTask == null
-                      ? ForgePalette.success
-                      : ForgePalette.warning,
-                ),
-                FilterChip(
-                  selected: isDeepMode,
-                  onSelected: onToggleDeepMode,
-                  label: Text(isDeepMode ? 'Deep mode' : 'Normal mode'),
-                ),
-              ],
-            ),
-            if (activeTask != null) ...[
-              const SizedBox(height: 14),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: ForgePalette.warning.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: ForgePalette.warning.withValues(alpha: 0.24),
-                  ),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(
-                      Icons.lock_clock_rounded,
-                      size: 18,
-                      color: ForgePalette.warning,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Workspace busy',
-                            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                                  color: ForgePalette.warning,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                          ),
-                          const SizedBox(height: 4),
-                    Text(
-                            queueCount == 0
-                                ? 'The current run owns this repo. Your next submission will queue behind it while the console stays live.'
-                                : 'The current run owns this repo. Your next submission will join ${queueCount + 1} queued runs.',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: ForgePalette.textSecondary,
-                                ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            const SizedBox(height: 14),
-            TextField(
-              controller: controller,
-              focusNode: focusNode,
-              minLines: 2,
-              maxLines: 6,
-              textInputAction: TextInputAction.newline,
-              decoration: InputDecoration(
-                labelText: activeTask == null
-                    ? 'New task'
-                    : 'Queue next run',
-                hintText: activeTask == null
-                    ? 'Fix auth, add onboarding, or refactor the repo service.'
-                    : 'This run will queue, stay visible, and start automatically when the active run finishes.',
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    !hasSelection
-                        ? 'Choose a repository to enable agent execution.'
-                        : activeTask == null
-                            ? 'Submitting now starts the live run and begins repo inspection.'
-                            : 'Submitting now adds this run to the queue and keeps it visible above.',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: ForgePalette.textSecondary,
-                        ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                ForgePrimaryButton(
-                  label: isSubmitting
-                      ? 'Submitting...'
-                      : activeTask == null
-                          ? 'Start task'
-                          : 'Queue run',
-                  icon: activeTask == null
-                      ? Icons.play_arrow_rounded
-                      : Icons.playlist_add_rounded,
-                  onPressed: canSubmit ? onSubmit : null,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

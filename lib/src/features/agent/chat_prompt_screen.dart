@@ -45,8 +45,9 @@ class _ChatPromptScreenState extends State<ChatPromptScreen> {
   final FocusNode _focus = FocusNode();
   final ScrollController _scroll = ScrollController();
 
-  // Local list of submitted prompts so we can show the user bubble immediately.
-  final List<_ChatEntry> _entries = [];
+  // Locally-added entries that haven't yet round-tripped through Firestore.
+  // These are merged with persisted entries so the user sees immediate feedback.
+  final List<_ChatEntry> _pendingEntries = [];
   bool _isSubmitting = false;
 
   @override
@@ -69,13 +70,40 @@ class _ChatPromptScreenState extends State<ChatPromptScreen> {
     });
   }
 
+  /// Build the chat entry list from persisted agent tasks (for the current
+  /// prompt thread) merged with any pending local entries that haven't yet
+  /// appeared in the task list.
+  List<_ChatEntry> _buildEntries(ForgeWorkspaceState state) {
+    final threadId = state.selectedPromptThreadId;
+    // Tasks belonging to this thread, oldest first.
+    final threadTasks = state.agentTasks
+        .where((t) => t.threadId == threadId)
+        .toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
+    final entries = <_ChatEntry>[];
+    final knownTaskIds = <String>{};
+    for (final task in threadTasks) {
+      knownTaskIds.add(task.id);
+      entries.add(_ChatEntry(prompt: task.prompt, taskId: task.id));
+    }
+    // Append any pending entries whose taskId is not yet in the persisted list.
+    for (final pending in _pendingEntries) {
+      if (pending.taskId == null || !knownTaskIds.contains(pending.taskId)) {
+        entries.add(pending);
+      }
+    }
+    return entries;
+  }
+
   Future<void> _submit() async {
     final prompt = _text.text.trim();
     if (prompt.isEmpty || _isSubmitting) return;
 
+    final pending = _ChatEntry.prompt(prompt);
     setState(() {
       _isSubmitting = true;
-      _entries.add(_ChatEntry.prompt(prompt));
+      _pendingEntries.add(pending);
     });
     _text.clear();
     _scrollToBottom();
@@ -83,12 +111,18 @@ class _ChatPromptScreenState extends State<ChatPromptScreen> {
     try {
       final taskId = await widget.controller.enqueueAgentTask(prompt: prompt);
       setState(() {
-        _entries.last = _entries.last.withTaskId(taskId);
+        final idx = _pendingEntries.indexOf(pending);
+        if (idx >= 0) {
+          _pendingEntries[idx] = pending.withTaskId(taskId);
+        }
       });
       _scrollToBottom();
     } catch (error) {
       setState(() {
-        _entries.last = _entries.last.withError(forgeUserFriendlyMessage(error));
+        final idx = _pendingEntries.indexOf(pending);
+        if (idx >= 0) {
+          _pendingEntries[idx] = pending.withError(forgeUserFriendlyMessage(error));
+        }
       });
     } finally {
       setState(() => _isSubmitting = false);
@@ -104,6 +138,7 @@ class _ChatPromptScreenState extends State<ChatPromptScreen> {
         final selectedRepo = state.selectedRepository;
         final trustLevel = state.agentTrustLevel;
         final ownerId = widget.controller.currentOwnerId;
+        final entries = _buildEntries(state);
 
         return Scaffold(
           backgroundColor: ForgePalette.surface,
@@ -199,14 +234,14 @@ class _ChatPromptScreenState extends State<ChatPromptScreen> {
             children: [
               // ── Conversation history ──────────────────────────────────
               Expanded(
-                child: _entries.isEmpty
+                child: entries.isEmpty
                     ? _EmptyState(repoName: selectedRepo?.name)
                     : ListView.builder(
                         controller: _scroll,
                         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                        itemCount: _entries.length,
+                        itemCount: entries.length,
                         itemBuilder: (context, index) {
-                          final entry = _entries[index];
+                          final entry = entries[index];
                           return _ChatEntryCard(
                             entry: entry,
                             ownerId: ownerId,

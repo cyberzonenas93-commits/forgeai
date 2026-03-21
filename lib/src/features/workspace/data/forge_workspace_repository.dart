@@ -374,18 +374,16 @@ class ForgeWorkspaceRepository {
         message: 'Not signed in.',
       );
     }
-    // Pre-emptively force-refresh the ID token. The cloud_functions iOS SDK
-    // sometimes sends a stale token even when Firebase Auth has a valid
-    // session, so warming the native token cache here reduces first-attempt
-    // failures. If the refresh itself fails (e.g. network error), continue
-    // anyway — the callable may still succeed with the native SDK's cached
-    // token, and any real auth failure will surface as `unauthenticated` below.
+
+    // Get a Dart-side ID token. On iOS the cloud_functions SDK often fails to
+    // include the token in the Authorization header (native FIRAuth stale
+    // state). We pass it inside the payload as `_idToken` so the backend can
+    // fall back to manual verification when `request.auth` is null.
+    String? idToken;
     try {
-      await user.getIdToken(true);
-    } catch (_) {
-      // Ignore token-refresh failures; proceed and let the callable determine
-      // whether the current token is still valid.
-    }
+      idToken = await user.getIdToken(false);
+    } catch (_) {}
+    idToken ??= await user.getIdToken(true);
 
     final callable = _functions.httpsCallable('enqueueAgentTask');
     final payload = <String, dynamic>{
@@ -400,28 +398,10 @@ class ForgeWorkspaceRepository {
         'provider': provider.trim(),
       if (trustLevel != null && trustLevel.trim().isNotEmpty)
         'trustLevel': trustLevel.trim(),
+      if (idToken != null) '_idToken': idToken,
     };
 
-    // On iOS the cloud_functions SDK occasionally sends a stale auth token on
-    // the first call even after the pre-emptive refresh above (the native
-    // Functions SDK holds its own internal token state). When the backend
-    // returns `unauthenticated`, force-refresh once more and retry — after a
-    // failed call the native SDK resets its token state, so the second attempt
-    // picks up the freshly-refreshed token. Swallow refresh errors here too so
-    // the retry attempt always runs.
-    HttpsCallableResult<dynamic> result;
-    try {
-      result = await callable.call(payload);
-    } on FirebaseFunctionsException catch (e) {
-      if (e.code != 'unauthenticated') rethrow;
-      try {
-        await user.getIdToken(true);
-      } catch (_) {
-        // Ignore; proceed with the retry regardless.
-      }
-      result = await callable.call(payload);
-    }
-
+    final result = await callable.call(payload);
     final responseData = result.data;
     if (responseData is Map) {
       final taskId = responseData['taskId'] as String?;

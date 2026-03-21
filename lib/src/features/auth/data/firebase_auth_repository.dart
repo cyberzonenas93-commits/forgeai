@@ -1,12 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:http/http.dart' as http;
 
 import '../../../core/branding/app_branding.dart';
+import '../../../core/config/forge_runtime_config.dart';
 import '../domain/auth_account.dart';
 import '../domain/auth_failure.dart';
 import '../domain/auth_provider_kind.dart';
@@ -17,14 +19,11 @@ class FirebaseAuthRepository implements AuthRepository {
   FirebaseAuthRepository({
     FirebaseAuth? auth,
     GoogleSignIn? googleSignIn,
-    FirebaseFunctions? functions,
   }) : _auth = auth ?? FirebaseAuth.instance,
-       _googleSignIn = googleSignIn ?? GoogleSignIn.instance,
-       _functions = functions ?? FirebaseFunctions.instance;
+       _googleSignIn = googleSignIn ?? GoogleSignIn.instance;
 
   final FirebaseAuth _auth;
   final GoogleSignIn _googleSignIn;
-  final FirebaseFunctions _functions;
   static Future<void>? _googleSignInInitialization;
 
   String get _githubCallbackUrl {
@@ -315,13 +314,37 @@ class FirebaseAuthRepository implements AuthRepository {
       return;
     }
 
+    // Bypass the iOS cloud_functions SDK entirely — it persistently fails to
+    // include the Firebase Auth token. Instead, call the Cloud Function
+    // directly via HTTP with an explicit Authorization header.
     try {
-      final callable = _functions.httpsCallable('syncProviderConnection');
-      await callable.call({'provider': 'github', 'accessToken': accessToken});
-    } on FirebaseFunctionsException catch (error) {
-      debugPrint(
-        '$kAppDisplayName GitHub connection sync failed: ${error.code} ${error.message ?? ''}',
+      final idToken = await _auth.currentUser?.getIdToken(true);
+      if (idToken == null || idToken.isEmpty) {
+        debugPrint('$kAppDisplayName GitHub sync: no ID token available');
+        return;
+      }
+
+      final config = ForgeRuntimeConfig.current;
+      final uri = Uri.parse(
+        'https://${config.firebaseRegion}-${config.firebaseProjectId}.cloudfunctions.net/syncProviderConnection',
       );
+
+      final response = await http.post(
+        uri,
+        headers: {
+          'Authorization': 'Bearer $idToken',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'data': {'provider': 'github', 'accessToken': accessToken},
+        }),
+      );
+
+      if (response.statusCode != 200) {
+        debugPrint(
+          '$kAppDisplayName GitHub connection sync failed: HTTP ${response.statusCode} ${response.body}',
+        );
+      }
     } catch (error) {
       debugPrint('$kAppDisplayName GitHub connection sync failed: $error');
     }
