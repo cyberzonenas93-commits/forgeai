@@ -1,0 +1,10 @@
+.claude/
+**/.claude/
+**/.claude/**
+**/.git/**
+**/.gitignore
+**/node_modules/**
+functions/src/**
+functions/tsconfig.json
+**/*.ts
+!functions/lib/**
