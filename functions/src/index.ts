@@ -3913,6 +3913,7 @@ async function hydrateRepoExecutionContext(params: {
   observer?: RepoExecutionObserver;
   existingRunMemory?: RepoExecutionRunMemory | null;
   budgetRemainingRatio?: number | null;
+  requestedProvider?: AiProviderName | null;
 }) {
   const files =
     params.repoFilesOverride != null
@@ -4006,9 +4007,10 @@ async function hydrateRepoExecutionContext(params: {
       deepMode: params.deepMode,
     });
     repoCoverageNotice = buildRepoCoverageNotice(params.repo, entries.length);
+    const repoOverviewMaxChars = params.requestedProvider === 'openai' ? 30_000 : 128_000;
     repoOverview = repoCoverageNotice
-      ? `${formatRepoKnowledgeMap(knowledgeMap)}\n\nSYNC COVERAGE:\n${repoCoverageNotice}`
-      : formatRepoKnowledgeMap(knowledgeMap);
+      ? `${formatRepoKnowledgeMap(knowledgeMap, repoOverviewMaxChars)}\n\nSYNC COVERAGE:\n${repoCoverageNotice}`
+      : formatRepoKnowledgeMap(knowledgeMap, repoOverviewMaxChars);
     globalContextPaths = dedupeRepoPaths(
       [
         ...pickGlobalContextPaths(
@@ -4836,6 +4838,7 @@ async function generateRepoExecutionSession(params: {
     observer: params.observer,
     existingRunMemory: params.existingRunMemory,
     budgetRemainingRatio: params.budgetRemainingRatio,
+    requestedProvider: params.requestedProvider ?? null,
   });
   const initialCostProfile = chooseAgentCostProfile({
     stage: params.repairMode === true ? 'repair' : 'editing',
@@ -10211,9 +10214,17 @@ async function callAiChatTextWithAgentRecruitment(
     return parts;
   };
 
+  // Rolling window: keep at most 20 messages, trim oldest if estimated tokens > 25k
+  let trimmedHistory = history.slice(-20);
+  const maxHistoryChars = 25_000 * 4;
+  while (trimmedHistory.length > 0) {
+    const totalChars = trimmedHistory.reduce((sum, m) => sum + m.text.length, 0) + userMessage.length;
+    if (totalChars <= maxHistoryChars) break;
+    trimmedHistory = trimmedHistory.slice(1);
+  }
   const messages: OpenAiMessage[] = [
     { role: 'system', content: systemPrompt },
-    ...history.map(item => ({
+    ...trimmedHistory.map(item => ({
       role: item.role,
       content: item.text,
     })) as OpenAiMessage[],
@@ -10332,7 +10343,15 @@ async function callAiChatText(
   }
 
   if (provider === 'openai') {
-    const historyMessages = history.map(item => ({
+    // Rolling window: keep at most 20 messages, trim oldest if estimated tokens > 25k
+    let trimmedHistory = history.slice(-20);
+    const maxHistoryChars = 25_000 * 4;
+    while (trimmedHistory.length > 0) {
+      const totalChars = trimmedHistory.reduce((sum, m) => sum + m.text.length, 0) + userMessage.length;
+      if (totalChars <= maxHistoryChars) break;
+      trimmedHistory = trimmedHistory.slice(1);
+    }
+    const historyMessages = trimmedHistory.map(item => ({
       role: item.role,
       content: item.text,
     }));

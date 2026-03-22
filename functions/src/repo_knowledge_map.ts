@@ -1044,7 +1044,7 @@ export function recordRepoExecutionMemoryPass(params: {
   } satisfies RepoExecutionRunMemory;
 }
 
-export function formatRepoKnowledgeMap(map: RepoKnowledgeMap) {
+export function formatRepoKnowledgeMap(map: RepoKnowledgeMap, maxChars = 128_000) {
   return truncate(
     [
       map.repoOverview,
@@ -1058,7 +1058,7 @@ export function formatRepoKnowledgeMap(map: RepoKnowledgeMap) {
       'MODULE INDEX:',
       map.moduleIndex,
     ].join('\n'),
-    128_000,
+    maxChars,
   );
 }
 
