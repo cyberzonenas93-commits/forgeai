@@ -4,11 +4,10 @@
  */
 
 /**
- * OpenAI alias for the current GPT-5 snapshot used in ChatGPT; OpenAI rolls this forward over time.
- * @see https://developers.openai.com/api/docs/models/gpt-5-chat-latest
+ * OpenAI GPT-4o model with 128k context window.
  * Pin a snapshot with OPENAI_MODEL / OPENAI_MODEL_* env vars when you need fixed behavior.
  */
-export const OPENAI_LATEST_CHAT_MODEL = 'gpt-5-chat-latest';
+export const OPENAI_LATEST_CHAT_MODEL = 'gpt-4o';
 
 export type PlanId = 'free' | 'pro' | 'power';
 export type ModelTier = 'basic' | 'standard' | 'priority';
