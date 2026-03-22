@@ -4007,7 +4007,7 @@ async function hydrateRepoExecutionContext(params: {
       deepMode: params.deepMode,
     });
     repoCoverageNotice = buildRepoCoverageNotice(params.repo, entries.length);
-    const repoOverviewMaxChars = params.requestedProvider === 'openai' ? 30_000 : 128_000;
+    const repoOverviewMaxChars = params.requestedProvider === 'openai' ? 80_000 : 128_000;
     repoOverview = repoCoverageNotice
       ? `${formatRepoKnowledgeMap(knowledgeMap, repoOverviewMaxChars)}\n\nSYNC COVERAGE:\n${repoCoverageNotice}`
       : formatRepoKnowledgeMap(knowledgeMap, repoOverviewMaxChars);
@@ -4861,14 +4861,27 @@ async function generateRepoExecutionSession(params: {
   const maxStructuredOutputAttempts = params.deepMode ? 5 : 4;
   let finalExecutionRouting = executionRouting;
 
-  const maxCharsPerFile = params.deepMode ? 28_000 : 16_000;
+  const isOpenAiExecution = executionRouting.provider === 'openai';
+  const maxCharsPerFile = params.deepMode
+    ? (isOpenAiExecution ? 12_000 : 28_000)
+    : (isOpenAiExecution ? 8_000 : 16_000);
   const contextPayload = {
     repoOverview: preparedContext.repoOverview,
-    architectureOverview: preparedContext.architectureOverview,
-    architectureZoneOverview: preparedContext.architectureZoneOverview,
-    moduleOverview: preparedContext.moduleOverview,
-    moduleIndex: preparedContext.moduleIndex,
-    focusedModuleDetails: preparedContext.focusedModuleDetails,
+    architectureOverview: isOpenAiExecution
+      ? truncate(preparedContext.architectureOverview, 4_000)
+      : preparedContext.architectureOverview,
+    architectureZoneOverview: isOpenAiExecution
+      ? truncate(preparedContext.architectureZoneOverview, 4_000)
+      : preparedContext.architectureZoneOverview,
+    moduleOverview: isOpenAiExecution
+      ? truncate(preparedContext.moduleOverview, 8_000)
+      : preparedContext.moduleOverview,
+    moduleIndex: isOpenAiExecution
+      ? truncate(preparedContext.moduleIndex, 10_000)
+      : preparedContext.moduleIndex,
+    focusedModuleDetails: isOpenAiExecution
+      ? truncate(preparedContext.focusedModuleDetails, 6_000)
+      : preparedContext.focusedModuleDetails,
     runMemorySummary: preparedContext.executionMemorySummary,
     repoSizeClass: preparedContext.repoSizeClass,
     contextStrategy: preparedContext.contextStrategy,
