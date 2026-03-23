@@ -1,5 +1,6 @@
 node_modules/
 lib/
+.claude/
 .env
 .env.*
 !.env.example

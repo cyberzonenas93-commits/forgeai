@@ -1,0 +1,8 @@
+.claude/
+**/.claude/
+**/.claude/**
+node_modules/
+.git/
+src/
+tsconfig.json
+*.ts

@@ -1478,7 +1478,7 @@ function safeAgentTask(data: DocumentData | undefined): AgentTaskDocument {
                 : AGENT_TASK_MAX_RETRIES_NORMAL,
           maxTokenBudget:
             typeof data.guardrails.maxTokenBudget === 'number'
-              ? data.guardrails.maxTokenBudget
+              ? Math.max(data.guardrails.maxTokenBudget, AGENT_TASK_MAX_TOKEN_BUDGET_NORMAL)
               : AGENT_TASK_MAX_TOKEN_BUDGET_NORMAL,
           maxFileTouchCount:
             typeof data.guardrails.maxFileTouchCount === 'number'
@@ -3257,7 +3257,8 @@ async function fetchJson<T>(url: string, init: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const body = await response.text();
-    const message = truncate(body || response.statusText, 220);
+    console.error('[OpenAI error]', response.status, response.url ?? '', body);
+    const message = truncate(body || response.statusText, 500);
     const code =
       response.status === 400
         ? 'invalid-argument'
