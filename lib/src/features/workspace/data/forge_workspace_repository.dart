@@ -379,11 +379,14 @@ class ForgeWorkspaceRepository {
     // include the token in the Authorization header (native FIRAuth stale
     // state). We pass it inside the payload as `_idToken` so the backend can
     // fall back to manual verification when `request.auth` is null.
+    //
+    // Always force-refresh (true) so we never send an expired cached token.
+    // getIdToken(false) can return a stale token without throwing, which then
+    // fails verifyIdToken on the backend and surfaces as "session expired".
     String? idToken;
     try {
-      idToken = await user.getIdToken(false);
+      idToken = await user.getIdToken(true);
     } catch (_) {}
-    idToken ??= await user.getIdToken(true);
 
     final callable = _functions.httpsCallable('enqueueAgentTask');
     final payload = <String, dynamic>{
