@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/branding/app_branding.dart';
+import '../../core/models/forge_models.dart';
 import '../../core/notifications/forge_push_controller.dart';
 import '../../features/account/presentation/delete_account_screen.dart';
 import '../../features/auth/application/auth_controller.dart';
@@ -8,6 +9,7 @@ import '../../features/auth/domain/auth_account.dart';
 import '../../features/auth/presentation/guest_gate_dialog.dart';
 import '../../features/legal/legal_document_screen.dart';
 import '../../features/onboarding/data/onboarding_storage.dart';
+import '../../services/ai_copilot_service.dart';
 import '../../shared/forge_models.dart';
 import '../../shared/widgets/forge_widgets.dart';
 import '../repos/repository_connection_screen.dart';
@@ -392,6 +394,8 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 24),
+            const _AiCopilotSettingsPanel(),
+            const SizedBox(height: 24),
             ForgePanel(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -569,6 +573,164 @@ class _NotificationToggle extends StatelessWidget {
       subtitle: Text(subtitle),
       value: value,
       onChanged: !enabled || onChanged == null ? null : onChanged,
+    );
+  }
+}
+
+// ── AI Copilot settings panel ─────────────────────────────────────────────────
+
+class _AiCopilotSettingsPanel extends StatefulWidget {
+  const _AiCopilotSettingsPanel();
+
+  @override
+  State<_AiCopilotSettingsPanel> createState() =>
+      _AiCopilotSettingsPanelState();
+}
+
+class _AiCopilotSettingsPanelState extends State<_AiCopilotSettingsPanel> {
+  final _service = AiCopilotService.instance;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _service.init().then((_) {
+      if (mounted) setState(() => _loading = false);
+    });
+  }
+
+  Future<void> _setProvider(AiProviderKind provider) async {
+    await _service.updateSelectedProvider(provider);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _showKeyDialog(
+    BuildContext context,
+    AiProviderKind provider,
+  ) async {
+    final isAnthropic = provider == AiProviderKind.anthropic;
+    final existing = isAnthropic
+        ? (_service.anthropicApiKey ?? '')
+        : (_service.openAiApiKey ?? '');
+    final ctrl = TextEditingController(text: existing);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(isAnthropic ? 'Anthropic API Key' : 'OpenAI API Key'),
+        content: TextField(
+          controller: ctrl,
+          obscureText: true,
+          decoration: InputDecoration(
+            hintText: isAnthropic ? 'sk-ant-...' : 'sk-...',
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              if (isAnthropic) {
+                await _service.updateAnthropicApiKey(ctrl.text);
+              } else {
+                await _service.updateOpenAiApiKey(ctrl.text);
+              }
+              if (ctx.mounted) Navigator.of(ctx).pop();
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const ForgePanel(
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: CircularProgressIndicator(),
+          ),
+        ),
+      );
+    }
+
+    final openAiStatus = _service.openAiApiKey != null ? 'Configured' : 'Not set';
+    final anthropicStatus =
+        _service.anthropicApiKey != null ? 'Configured' : 'Not set';
+
+    return ForgePanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const ForgeSectionHeader(
+            title: 'AI Copilot',
+            subtitle:
+                'Choose which LLM powers the AI Copilot chat. Keys are stored locally on this device.',
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Active provider',
+            style: Theme.of(context).textTheme.labelMedium,
+          ),
+          const SizedBox(height: 8),
+          SegmentedButton<AiProviderKind>(
+            segments: const [
+              ButtonSegment<AiProviderKind>(
+                value: AiProviderKind.openai,
+                label: Text('OpenAI GPT'),
+                icon: Icon(Icons.psychology_rounded),
+              ),
+              ButtonSegment<AiProviderKind>(
+                value: AiProviderKind.anthropic,
+                label: Text('Anthropic Claude'),
+                icon: Icon(Icons.auto_awesome_rounded),
+              ),
+            ],
+            selected: {_service.selectedProvider},
+            onSelectionChanged: (selection) => _setProvider(selection.first),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'API keys',
+            style: Theme.of(context).textTheme.labelMedium,
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: ForgeSecondaryButton(
+                  label: 'OpenAI — $openAiStatus',
+                  icon: Icons.key_rounded,
+                  onPressed: () =>
+                      _showKeyDialog(context, AiProviderKind.openai),
+                  expanded: true,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: ForgeSecondaryButton(
+                  label: 'Anthropic — $anthropicStatus',
+                  icon: Icons.key_rounded,
+                  onPressed: () =>
+                      _showKeyDialog(context, AiProviderKind.anthropic),
+                  expanded: true,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
