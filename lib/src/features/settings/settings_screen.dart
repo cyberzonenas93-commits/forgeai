@@ -596,6 +596,8 @@ class _AiCopilotSettingsPanelState extends State<_AiCopilotSettingsPanel> {
     super.initState();
     _service.init().then((_) {
       if (mounted) setState(() => _loading = false);
+    }).catchError((Object _) {
+      if (mounted) setState(() => _loading = false);
     });
   }
 

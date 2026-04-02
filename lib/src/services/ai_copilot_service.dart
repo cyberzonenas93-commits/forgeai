@@ -44,15 +44,19 @@ class AiCopilotService {
   /// Load saved keys and provider selection from SharedPreferences.
   /// Safe to call multiple times.
   Future<void> init() async {
-    final prefs = await SharedPreferences.getInstance();
-    _openAiApiKey = prefs.getString(_kOpenAiApiKey);
-    _anthropicApiKey = prefs.getString(_kAnthropicApiKey);
-    final providerName = prefs.getString(_kSelectedProvider);
-    if (providerName != null) {
-      _selectedProvider = AiProviderKind.values.firstWhere(
-        (p) => p.name == providerName,
-        orElse: () => AiProviderKind.openai,
-      );
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _openAiApiKey = prefs.getString(_kOpenAiApiKey);
+      _anthropicApiKey = prefs.getString(_kAnthropicApiKey);
+      final providerName = prefs.getString(_kSelectedProvider);
+      if (providerName != null) {
+        _selectedProvider = AiProviderKind.values.firstWhere(
+          (p) => p.name == providerName,
+          orElse: () => AiProviderKind.openai,
+        );
+      }
+    } catch (_) {
+      // Fail silently — service stays at defaults.
     }
   }
 
