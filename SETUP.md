@@ -37,10 +37,10 @@
 
 ## GitHub Sign-In Setup
 1. In the Firebase console for `forgeai-555ee`, open Authentication, then Sign-in method, then enable the GitHub provider.
-2. In GitHub Developer Settings, create an OAuth App for CodeCatalystAI.
+2. In GitHub Developer Settings, create an OAuth App for CodeCatalystAi.
 3. Use `https://forgeai-555ee.firebaseapp.com/__/auth/handler` as the Authorization callback URL for the GitHub OAuth App.
 4. Copy the GitHub OAuth App client ID and client secret into the GitHub provider settings in Firebase Authentication and save.
-5. Keep `GitHub` enabled in the CodeCatalystAI auth entry screen. The mobile app routes that button through Firebase Auth using `GithubAuthProvider` and stores the resulting GitHub OAuth access for later repository sync.
+5. Keep `GitHub` enabled in the CodeCatalystAi auth entry screen. The mobile app routes that button through Firebase Auth using `GithubAuthProvider` and stores the resulting GitHub OAuth access for later repository sync.
 6. If GitHub sign-in fails with a configuration error in the app, re-check the Firebase GitHub provider toggle, the OAuth client secret, and the callback URL above.
 
 ## Local Development Notes

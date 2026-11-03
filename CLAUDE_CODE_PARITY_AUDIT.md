@@ -1,7 +1,7 @@
 # Claude Code Parity Audit
 
 ## Summary
-CodeCatalystAI is now materially closer to a repo-native coding agent than it was before this pass. It has a durable task queue, per-repo locking, streamed live events, a layered repo knowledge map, explicit run planning, multi-file structured edits, approval-resume continuation, task-local cloned-workspace apply, real git commit/PR follow-ups, and an automatic validation/repair loop that can dispatch GitHub Actions and retry with a new diff.
+CodeCatalystAi is now materially closer to a repo-native coding agent than it was before this pass. It has a durable task queue, per-repo locking, streamed live events, a layered repo knowledge map, explicit run planning, multi-file structured edits, approval-resume continuation, task-local cloned-workspace apply, real git commit/PR follow-ups, and an automatic validation/repair loop that can dispatch GitHub Actions and retry with a new diff.
 
 This pass also closes a backend architecture gap that was still weakening parity: the main repo-agent path now has explicit provider routing plus a real tool catalog/execution layer instead of hardcoding OpenAI and burying all execution semantics inside one monolithic runtime file.
 

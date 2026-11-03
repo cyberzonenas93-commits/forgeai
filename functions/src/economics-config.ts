@@ -4,10 +4,10 @@
  */
 
 /**
- * OpenAI GPT-4o model with 128k context window.
+ * OpenAI GPT-5.4 model.
  * Pin a snapshot with OPENAI_MODEL / OPENAI_MODEL_* env vars when you need fixed behavior.
  */
-export const OPENAI_LATEST_CHAT_MODEL = 'gpt-4o';
+export const OPENAI_LATEST_CHAT_MODEL = 'gpt-5.4';
 
 export type PlanId = 'free' | 'pro' | 'power';
 export type ModelTier = 'basic' | 'standard' | 'priority';

@@ -780,8 +780,7 @@ class _AgentTaskDetailsScreenState extends State<AgentTaskDetailsScreen> {
                         ),
                       ),
                       // ── Live stream log ──────────────────────────────
-                      if (task != null &&
-                          task.isActive &&
+                      if (task.isActive &&
                           widget.controller.currentOwnerId != null) ...[
                         const SizedBox(height: 16),
                         Padding(

@@ -31,7 +31,7 @@ firebase deploy --only functions
 
 - **No extra steps.** The app already has:
   - `POST_NOTIFICATIONS` permission
-  - Default FCM channel `forgeai_default`
+  - Default FCM channel `codecatalystai_default`
   - Firebase Messaging in the app
 
 - On first run, the user will be asked for notification permission (Android 13+). They can also enable it later in **Settings > Notifications** in the app.

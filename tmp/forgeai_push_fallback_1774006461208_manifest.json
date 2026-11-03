@@ -1,0 +1,195 @@
+{
+  "runId": "forgeai_push_fallback_1774006461208",
+  "createdAt": "2026-03-20T11:34:21.208Z",
+  "phone": "0595494113",
+  "targetCount": 7,
+  "targets": [
+    {
+      "uid": "E3vDhz9H1eYCHd71RWxVFvXr7wm2",
+      "email": "test@gmail.com",
+      "name": "test testt",
+      "fcmToken": null,
+      "fcmTokens": null
+    },
+    {
+      "uid": "Jv1B8vhBp3hTlwg5I09Yf8zJd3p2",
+      "email": "testtest@gmail.com",
+      "name": "test testtt",
+      "fcmToken": null,
+      "fcmTokens": []
+    },
+    {
+      "uid": "U7WVX3kUYTP88mrevjudO0gBYmJ3",
+      "email": "Angelo.nartey111@hotmail.com",
+      "name": "Angelo Nartey",
+      "fcmToken": null,
+      "fcmTokens": null
+    },
+    {
+      "uid": "hGOYiTWixSR1qULwhJ5tZbOP5ZD3",
+      "email": "Angelo.nartey11@hotmail.com",
+      "name": "Angelo Nartey",
+      "fcmToken": null,
+      "fcmTokens": null
+    },
+    {
+      "uid": "jKQIe3R2uYQzdvUHymrrZWrtjp82",
+      "email": "Angelo.nartey1@hotmail.com",
+      "name": "Angelo Nartey",
+      "fcmToken": null,
+      "fcmTokens": null
+    },
+    {
+      "uid": "w2DHL3u5nqMaS8mg5uOkIAh7bte2",
+      "email": null,
+      "name": "Angelo Nartey",
+      "fcmToken": null,
+      "fcmTokens": null
+    },
+    {
+      "uid": "y0C2WosTUDUmC40PQeaJVvBplxi1",
+      "email": "cyberzonenas93@gmail.com",
+      "name": "Angelo Nartey",
+      "fcmToken": null,
+      "fcmTokens": null
+    }
+  ],
+  "pushDelivery": {
+    "attempted": true,
+    "delivered": false,
+    "reason": "No live FCM token exists on any phone-linked users/{uid} record and no admins/user_private token was found for this target. A direct Firebase Admin send returned Requested entity was not found."
+  },
+  "fallback": {
+    "type": "notifications_collection",
+    "notificationsWritten": 21,
+    "route": "/dashboard"
+  },
+  "notifications": [
+    {
+      "uid": "E3vDhz9H1eYCHd71RWxVFvXr7wm2",
+      "email": "test@gmail.com",
+      "part": "1/3",
+      "notificationDocId": "ktUyuHYTjVSCEHdKSvcN"
+    },
+    {
+      "uid": "E3vDhz9H1eYCHd71RWxVFvXr7wm2",
+      "email": "test@gmail.com",
+      "part": "2/3",
+      "notificationDocId": "EbFRQf9eoWgknGPYNTV4"
+    },
+    {
+      "uid": "E3vDhz9H1eYCHd71RWxVFvXr7wm2",
+      "email": "test@gmail.com",
+      "part": "3/3",
+      "notificationDocId": "acp4OYfBx7LgxqqBwwEI"
+    },
+    {
+      "uid": "Jv1B8vhBp3hTlwg5I09Yf8zJd3p2",
+      "email": "testtest@gmail.com",
+      "part": "1/3",
+      "notificationDocId": "3J3Hl0PeUU4BWTXBZeND"
+    },
+    {
+      "uid": "Jv1B8vhBp3hTlwg5I09Yf8zJd3p2",
+      "email": "testtest@gmail.com",
+      "part": "2/3",
+      "notificationDocId": "mk0VjfD81ZaxBZ9SEuhP"
+    },
+    {
+      "uid": "Jv1B8vhBp3hTlwg5I09Yf8zJd3p2",
+      "email": "testtest@gmail.com",
+      "part": "3/3",
+      "notificationDocId": "IPC9vtA2XmuqYAhAR0q4"
+    },
+    {
+      "uid": "U7WVX3kUYTP88mrevjudO0gBYmJ3",
+      "email": "Angelo.nartey111@hotmail.com",
+      "part": "1/3",
+      "notificationDocId": "HKPYPgu4TO842FQ8qtAa"
+    },
+    {
+      "uid": "U7WVX3kUYTP88mrevjudO0gBYmJ3",
+      "email": "Angelo.nartey111@hotmail.com",
+      "part": "2/3",
+      "notificationDocId": "8UqjCvw7cEGtFvWrmPxu"
+    },
+    {
+      "uid": "U7WVX3kUYTP88mrevjudO0gBYmJ3",
+      "email": "Angelo.nartey111@hotmail.com",
+      "part": "3/3",
+      "notificationDocId": "FBODK7TKOs4fzsOgTme7"
+    },
+    {
+      "uid": "hGOYiTWixSR1qULwhJ5tZbOP5ZD3",
+      "email": "Angelo.nartey11@hotmail.com",
+      "part": "1/3",
+      "notificationDocId": "yEvOiW01H6Bwndfa5jNj"
+    },
+    {
+      "uid": "hGOYiTWixSR1qULwhJ5tZbOP5ZD3",
+      "email": "Angelo.nartey11@hotmail.com",
+      "part": "2/3",
+      "notificationDocId": "dAKOgEoCxlmuEwrXCJNg"
+    },
+    {
+      "uid": "hGOYiTWixSR1qULwhJ5tZbOP5ZD3",
+      "email": "Angelo.nartey11@hotmail.com",
+      "part": "3/3",
+      "notificationDocId": "V4WA0gJObJ6QFryR2rXs"
+    },
+    {
+      "uid": "jKQIe3R2uYQzdvUHymrrZWrtjp82",
+      "email": "Angelo.nartey1@hotmail.com",
+      "part": "1/3",
+      "notificationDocId": "5kIBZZHggLkuWvfKtWyc"
+    },
+    {
+      "uid": "jKQIe3R2uYQzdvUHymrrZWrtjp82",
+      "email": "Angelo.nartey1@hotmail.com",
+      "part": "2/3",
+      "notificationDocId": "3KBUlssjRJEjQ6RJOR7A"
+    },
+    {
+      "uid": "jKQIe3R2uYQzdvUHymrrZWrtjp82",
+      "email": "Angelo.nartey1@hotmail.com",
+      "part": "3/3",
+      "notificationDocId": "tPRuG23ndi91bsMyq5Rf"
+    },
+    {
+      "uid": "w2DHL3u5nqMaS8mg5uOkIAh7bte2",
+      "email": null,
+      "part": "1/3",
+      "notificationDocId": "ncmphoWfn55z3nv1JF36"
+    },
+    {
+      "uid": "w2DHL3u5nqMaS8mg5uOkIAh7bte2",
+      "email": null,
+      "part": "2/3",
+      "notificationDocId": "wSLitUk5eyiz91E7w59d"
+    },
+    {
+      "uid": "w2DHL3u5nqMaS8mg5uOkIAh7bte2",
+      "email": null,
+      "part": "3/3",
+      "notificationDocId": "ERnWb1put9XQGJtzjv6J"
+    },
+    {
+      "uid": "y0C2WosTUDUmC40PQeaJVvBplxi1",
+      "email": "cyberzonenas93@gmail.com",
+      "part": "1/3",
+      "notificationDocId": "sU0rF5E7H89Vs6MjVECd"
+    },
+    {
+      "uid": "y0C2WosTUDUmC40PQeaJVvBplxi1",
+      "email": "cyberzonenas93@gmail.com",
+      "part": "2/3",
+      "notificationDocId": "MF6IMrvwI0O6664YuHOh"
+    },
+    {
+      "uid": "y0C2WosTUDUmC40PQeaJVvBplxi1",
+      "email": "cyberzonenas93@gmail.com",
+      "part": "3/3",
+      "notificationDocId": "AS4KWtGD7sNzMoWe8udJ"
+    }
+  ]
+}

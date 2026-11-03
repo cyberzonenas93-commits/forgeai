@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "CodeCatalystAI",
+    "name": "CodeCatalystAi",
     "firebaseProjectId": "forgeai-555ee",
     "bundleId": "com.forgeai.app",
     "androidApplicationId": "com.forgeai.app",

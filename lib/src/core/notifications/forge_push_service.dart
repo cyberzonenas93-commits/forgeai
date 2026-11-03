@@ -13,7 +13,7 @@ import '../../shared/forge_models.dart';
 
 const AndroidNotificationChannel _forgeNotificationChannel =
     AndroidNotificationChannel(
-      'forgeai_default',
+      'codecatalystai_default',
       '$kAppDisplayName Notifications',
       description: 'Status updates for repositories, checks, AI, and account events.',
       importance: Importance.high,

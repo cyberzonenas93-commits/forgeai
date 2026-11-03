@@ -308,8 +308,8 @@ export function buildRepoContextBudget(params: {
     case 'tiny':
       return {
         sizeClass,
-        strategyLabel: 'whole_repo_inline',
-        exactWholeRepoEligible: true,
+        strategyLabel: 'hierarchical_small_repo',
+        exactWholeRepoEligible: false,
         initialModuleSeedLimit: 8,
         keyFilesPerModule: 4,
         explorationPasses: 1,
@@ -321,8 +321,8 @@ export function buildRepoContextBudget(params: {
     case 'small':
       return {
         sizeClass,
-        strategyLabel: params.deepMode ? 'wide_repo_inline' : 'hierarchical_small_repo',
-        exactWholeRepoEligible: params.deepMode || params.approxTokens <= 90_000,
+        strategyLabel: 'hierarchical_small_repo',
+        exactWholeRepoEligible: false,
         initialModuleSeedLimit: params.deepMode ? 18 : 12,
         keyFilesPerModule: params.deepMode ? 5 : 3,
         explorationPasses: params.deepMode ? 4 : 2,

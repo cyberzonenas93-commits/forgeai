@@ -1,5 +1,5 @@
 {
-  "$schema": "Monetization and token economics for CodeCatalystAI",
+  "$schema": "Monetization and token economics for CodeCatalystAi",
   "version": "2026-03-1",
   "tokenEconomics": {
     "tokenValueUsd": 0.05,

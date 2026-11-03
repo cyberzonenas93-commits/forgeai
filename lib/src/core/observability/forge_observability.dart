@@ -56,7 +56,7 @@ class ForgeObservability {
     }
 
     await recordEvent(
-      'forgeai_app_boot',
+      'codecatalystai_app_boot',
       parameters: <String, Object?>{
         'release_channel': runtime.releaseChannel,
         'app_env': runtime.appEnv,
@@ -107,7 +107,7 @@ class ForgeObservability {
     Map<String, Object?> context = const <String, Object?>{},
   }) async {
     await recordEvent(
-      'forgeai_nonfatal',
+      'codecatalystai_nonfatal',
       parameters: <String, Object?>{'reason': reason, ...context},
     );
 

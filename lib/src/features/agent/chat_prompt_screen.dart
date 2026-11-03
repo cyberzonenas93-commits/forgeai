@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/forge_palette.dart';
 import '../../shared/forge_user_friendly_error.dart';
-import '../../shared/widgets/forge_widgets.dart';
 import '../workspace/application/forge_workspace_controller.dart';
 import '../workspace/domain/forge_agent_entities.dart';
 import '../workspace/domain/forge_workspace_state.dart';

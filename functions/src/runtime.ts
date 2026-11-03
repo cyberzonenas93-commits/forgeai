@@ -241,7 +241,7 @@ export function assertRuntimeConfiguration() {
         : null,
     ].filter(Boolean);
     throw new Error(
-      `CodeCatalystAI runtime validation failed: ${missingSegments.join(' | ')}`,
+      `CodeCatalystAi runtime validation failed: ${missingSegments.join(' | ')}`,
     );
   }
   return validation;

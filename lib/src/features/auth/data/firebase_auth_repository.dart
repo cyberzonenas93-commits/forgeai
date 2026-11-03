@@ -505,7 +505,7 @@ class FirebaseAuthRepository implements AuthRepository {
     if (provider == AuthProviderKind.guest) {
       return 'guest@${user.uid}.forgeai.local';
     }
-    return '${provider.name}.user@forgeai.dev';
+    return '${provider.name}.user@codecatalystai.dev';
   }
 
   DateTime? _parseDate(DateTime? value) {

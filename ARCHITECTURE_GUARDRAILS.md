@@ -1,7 +1,7 @@
 # Architecture Guardrails
 
 ## Purpose
-This file exists to stop future AI runs from weakening CodeCatalystAI back into a chat assistant, a shallow retrieval wrapper, or a draft-only execution system.
+This file exists to stop future AI runs from weakening CodeCatalystAi back into a chat assistant, a shallow retrieval wrapper, or a draft-only execution system.
 
 If a proposed change conflicts with these guardrails, update the guardrails in the same pass with a deliberate architectural reason or do not make the change.
 

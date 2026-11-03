@@ -5,7 +5,7 @@
 Edit **`lib/src/core/branding/app_branding.dart`**:
 
 ```dart
-const String kAppDisplayName = 'CodeCatalystAI';
+const String kAppDisplayName = 'CodeCatalystAi';
 ```
 
 Most in-app strings and `MaterialApp.title` use this constant.
@@ -18,7 +18,7 @@ Most in-app strings and `MaterialApp.title` use this constant.
 
 ## App Store Connect
 
-- **Name** on the App Store should match **CodeCatalystAI** (or your listing name) even if the internal project folder is still `ForgeAI`.
+- **Name** on the App Store should match **CodeCatalystAi** (or your listing name) even if the internal project folder is still `ForgeAI`.
 - **Bundle ID** stays tied to your Apple Developer app record.
 
 ## Native labels
@@ -33,4 +33,4 @@ Most in-app strings and `MaterialApp.title` use this constant.
 
 ## Legal / web
 
-- `assets/legal/*.md`, `web/*.html` — updated to match **CodeCatalystAI**; adjust support email if you use a new domain.
+- `assets/legal/*.md`, `web/*.html` — updated to match **CodeCatalystAi**; adjust support email if you use a new domain.

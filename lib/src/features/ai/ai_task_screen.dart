@@ -4,6 +4,7 @@ import '../../core/theme/forge_palette.dart';
 import '../../shared/forge_user_friendly_error.dart';
 import '../../shared/widgets/forge_widgets.dart';
 import '../workspace/application/forge_workspace_controller.dart';
+import '../workspace/domain/forge_workspace_entities.dart';
 
 class AiTaskScreen extends StatefulWidget {
   const AiTaskScreen({super.key, required this.controller});
@@ -16,6 +17,7 @@ class AiTaskScreen extends StatefulWidget {
 
 class _AiTaskScreenState extends State<AiTaskScreen> {
   final TextEditingController _promptController = TextEditingController();
+  ForgeAiProvider? _selectedProvider; // null = auto
 
   @override
   void dispose() {
@@ -71,6 +73,34 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
                             selection.contains(true),
                           );
                         },
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<ForgeAiProvider?>(
+                        initialValue: _selectedProvider,
+                        decoration: const InputDecoration(
+                          labelText: 'Agent',
+                          prefixIcon: Icon(Icons.smart_toy_rounded),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: null,
+                            child: Text('Auto (recommended)'),
+                          ),
+                          DropdownMenuItem(
+                            value: ForgeAiProvider.anthropic,
+                            child: Text('Claude (Anthropic)'),
+                          ),
+                          DropdownMenuItem(
+                            value: ForgeAiProvider.openai,
+                            child: Text('GPT (OpenAI)'),
+                          ),
+                          DropdownMenuItem(
+                            value: ForgeAiProvider.gemini,
+                            child: Text('Gemini (Google)'),
+                          ),
+                        ],
+                        onChanged: (provider) =>
+                            setState(() => _selectedProvider = provider),
                       ),
                       const SizedBox(height: 16),
                       TextField(
@@ -193,6 +223,7 @@ class _AiTaskScreenState extends State<AiTaskScreen> {
     try {
       await widget.controller.runAiAction(
         prompt: _promptController.text.trim(),
+        provider: _selectedProvider,
       );
       if (!context.mounted) {
         return;

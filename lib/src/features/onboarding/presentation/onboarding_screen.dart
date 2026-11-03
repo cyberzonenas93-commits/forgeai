@@ -1,15 +1,21 @@
-import 'dart:math' as math;
-import 'dart:ui';
-
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import '../../../core/branding/app_branding.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../core/theme/forge_palette.dart';
-import '../../../core/widgets/forge_ui.dart';
 import '../data/onboarding_storage.dart';
+
+// ── VibeRadar palette ─────────────────────────────────────────────────────────
+const _kInk = Color(0xFF080914);
+const _kPanel = Color(0xFF111425);
+const _kRaised = Color(0xFF171B31);
+const _kEdge = Color(0xFF252B48);
+const _kCyan = Color(0xFF3AD7FF);
+const _kViolet = Color(0xFF8F6CFF);
+const _kLime = Color(0xFF9AFFA1);
+const _kText = Color(0xFFF0F4FF);
+const _kMuted = Color(0xFF5C6A8A);
+
+// ── Root widget ───────────────────────────────────────────────────────────────
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
@@ -24,576 +30,174 @@ class OnboardingScreen extends StatefulWidget {
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
+class _OnboardingScreenState extends State<OnboardingScreen> {
+  int _step = 0;
 
-class _OnboardingScreenState extends State<OnboardingScreen>
-    with SingleTickerProviderStateMixin {
-  final PageController _pageController = PageController();
-  int _currentPage = 0;
-  late final AnimationController _ambient;
-  late DeployAuthMethodOption _deployAuthMethod;
-  bool _savingDeploySetup = false;
+  // Step 1
+  final _apiKeyController = TextEditingController();
+  bool _obscureApiKey = true;
 
-  static const List<_OnboardingPage> _pages = [
-    _OnboardingPage(
-      label: 'Connect',
-      title: 'Your code, anywhere',
-      subtitle:
-          'Connect GitHub. Browse repos, switch branches, and open files from your phone.',
-      icon: Icons.folder_copy_rounded,
-      accent: Color(0xFF60A5FA),
-      heroOffsets: [Offset(0.2, 0.15), Offset(0.75, 0.35), Offset(0.1, 0.7)],
-    ),
-    _OnboardingPage(
-      label: 'Build',
-      title: 'Queue an agent run',
-      subtitle:
-          'Describe the change in plain language. Let the agent inspect the repo, prepare diffs, and keep approval before shipping.',
-      icon: Icons.auto_awesome_rounded,
-      accent: Color(0xFF38BDF8),
-      heroOffsets: [Offset(0.7, 0.2), Offset(0.15, 0.5), Offset(0.6, 0.75)],
-    ),
-    _OnboardingPage(
-      label: 'Ship',
-      title: 'Review and ship',
-      subtitle:
-          'See diffs, commit, and open pull requests. You stay in control from first edit to merge.',
-      icon: Icons.verified_rounded,
-      accent: Color(0xFF34D399),
-      heroOffsets: [Offset(0.25, 0.25), Offset(0.7, 0.6), Offset(0.05, 0.65)],
-    ),
-  ];
+  // Step 2
+  String? _musicFolderPath;
+  bool _pickingFolder = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _deployAuthMethod = widget.storage.deployAuthMethod;
-    _ambient = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 28),
-    )..repeat();
-  }
+  // Step 3
+  static const _kRegionOrder = ['US', 'GB', 'GH', 'NG', 'ZA', 'DE'];
+  static const _kRegionFlags = {
+    'US': '🇺🇸', 'GB': '🇬🇧', 'GH': '🇬🇭',
+    'NG': '🇳🇬', 'ZA': '🇿🇦', 'DE': '🇩🇪',
+  };
+  static const _kRegionNames = {
+    'US': 'United States', 'GB': 'United Kingdom', 'GH': 'Ghana',
+    'NG': 'Nigeria',       'ZA': 'South Africa',   'DE': 'Germany',
+  };
+  final Map<String, bool> _regions = {
+    for (final r in _kRegionOrder) r: true,
+  };
+  bool _saving = false;
 
   @override
   void dispose() {
-    _ambient.dispose();
-    _pageController.dispose();
+    _apiKeyController.dispose();
     super.dispose();
   }
 
-  void _onPageChanged(int index) {
-    setState(() => _currentPage = index);
-  }
-
-  void _nextOrComplete() {
-    if (_currentPage < _pages.length - 1) {
-      _pageController.nextPage(
-        duration: const Duration(milliseconds: 380),
-        curve: Curves.easeOutCubic,
+  Future<void> _pickFolder() async {
+    if (_pickingFolder) return;
+    setState(() => _pickingFolder = true);
+    try {
+      final path = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: 'Select your music library folder',
+        lockParentWindow: true,
       );
-    } else {
-      widget.onComplete();
+      if (mounted && path != null) setState(() => _musicFolderPath = path);
+    } finally {
+      if (mounted) setState(() => _pickingFolder = false);
     }
   }
 
-  Future<void> _saveDeploySetup() async {
-    if (_savingDeploySetup) return;
-    setState(() => _savingDeploySetup = true);
-    await widget.storage.saveDeploySetup(
-      authMethod: _deployAuthMethod,
-      configured: true,
+  Future<void> _complete() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    final selectedRegions =
+        _kRegionOrder.where((r) => _regions[r] == true).join(',');
+    await widget.storage.saveVibeRadarOnboarding(
+      apiKey: _apiKeyController.text.trim(),
+      libraryPath: _musicFolderPath,
+      selectedRegions: selectedRegions,
     );
-    if (!mounted) return;
-    setState(() => _savingDeploySetup = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Deploy setup saved. You can edit this later in Settings.'),
-      ),
-    );
-  }
-
-  Future<void> _skipDeploySetup() async {
-    await widget.storage.saveDeploySetup(
-      authMethod: _deployAuthMethod,
-      configured: false,
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Skipped for now. You can set this up later.'),
-      ),
-    );
+    if (mounted) widget.onComplete();
   }
 
   @override
   Widget build(BuildContext context) {
-    final isLast = _currentPage == _pages.length - 1;
-    final page = _pages[_currentPage];
-    final bottomInset = MediaQuery.paddingOf(context).bottom;
-
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: ForgeAiTheme.backgroundGradient,
-        ),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            const _OnboardingBackdrop(),
-            SafeArea(
-              bottom: false,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 12, 0),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                kAppDisplayName,
-                                style: GoogleFonts.inter(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 1.2,
-                                  color: ForgePalette.textMuted,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              _StepChip(
-                                current: _currentPage + 1,
-                                total: _pages.length,
-                                accent: page.accent,
-                              ),
-                            ],
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: isLast ? null : widget.onComplete,
-                          style: TextButton.styleFrom(
-                            foregroundColor: ForgePalette.textSecondary,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 10,
-                            ),
-                          ),
-                          child: Text(
-                            'Skip',
-                            style: GoogleFonts.inter(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 15,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: PageView.builder(
-                      controller: _pageController,
-                      onPageChanged: _onPageChanged,
-                      itemCount: _pages.length,
-                      itemBuilder: (context, index) {
-                        final isDeployPage = index == _pages.length - 1;
-                        return _OnboardingPageView(
-                          page: _pages[index],
-                          ambient: _ambient,
-                          extraChild: isDeployPage
-                              ? _OptionalDeploySetupCard(
-                                  authMethod: _deployAuthMethod,
-                                  isSaving: _savingDeploySetup,
-                                  onAuthChanged: (value) {
-                                    setState(() => _deployAuthMethod = value);
-                                  },
-                                  onSave: _saveDeploySetup,
-                                  onSkip: _skipDeploySetup,
-                                )
-                              : null,
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: _OnboardingBottomBar(
-                bottomInset: bottomInset,
-                pageCount: _pages.length,
-                currentPage: _currentPage,
-                isLast: isLast,
-                onPrimary: _nextOrComplete,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _StepChip extends StatelessWidget {
-  const _StepChip({
-    required this.current,
-    required this.total,
-    required this.accent,
-  });
-
-  final int current;
-  final int total;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: accent.withValues(alpha: 0.35),
-        ),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            accent.withValues(alpha: 0.14),
-            ForgePalette.surface.withValues(alpha: 0.45),
-          ],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: accent.withValues(alpha: 0.12),
-            blurRadius: 18,
-            spreadRadius: -6,
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.auto_graph_rounded,
-            size: 14,
-            color: accent.withValues(alpha: 0.95),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            'Step $current of $total',
-            style: GoogleFonts.inter(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: ForgePalette.textPrimary,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _OnboardingBottomBar extends StatelessWidget {
-  const _OnboardingBottomBar({
-    required this.bottomInset,
-    required this.pageCount,
-    required this.currentPage,
-    required this.isLast,
-    required this.onPrimary,
-  });
-
-  final double bottomInset;
-  final int pageCount;
-  final int currentPage;
-  final bool isLast;
-  final VoidCallback onPrimary;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            border: Border(
-              top: BorderSide(
-                color: ForgePalette.border.withValues(alpha: 0.55),
-              ),
-            ),
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                ForgePalette.backgroundSecondary.withValues(alpha: 0.72),
-                ForgePalette.background.withValues(alpha: 0.88),
-              ],
-            ),
-          ),
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(24, 18, 24, 20 + bottomInset),
+      backgroundColor: _kInk,
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(pageCount, (i) {
-                    final active = i == currentPage;
-                    return AnimatedContainer(
-                      duration: const Duration(milliseconds: 280),
-                      curve: Curves.easeOutCubic,
-                      margin: const EdgeInsets.symmetric(horizontal: 5),
-                      height: 8,
-                      width: active ? 32 : 8,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(999),
-                        gradient: active
-                            ? ForgePalette.buttonGradient
-                            : null,
-                        color: active
-                            ? null
-                            : ForgePalette.textMuted.withValues(alpha: 0.35),
-                        boxShadow: active
-                            ? [
-                                BoxShadow(
-                                  color: ForgePalette.glowAccent
-                                      .withValues(alpha: 0.35),
-                                  blurRadius: 12,
-                                  spreadRadius: -2,
-                                ),
-                              ]
-                            : null,
-                      ),
-                    );
-                  }),
-                ),
-                const SizedBox(height: 22),
-                SizedBox(
-                  width: double.infinity,
-                  child: ForgePrimaryButton(
-                    label: isLast ? 'Get started' : 'Continue',
-                    icon: isLast
-                        ? Icons.rocket_launch_rounded
-                        : Icons.arrow_forward_rounded,
-                    onPressed: onPrimary,
-                    expanded: true,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _OnboardingPage {
-  const _OnboardingPage({
-    required this.label,
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.accent,
-    required this.heroOffsets,
-  });
-
-  final String label;
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final Color accent;
-  final List<Offset> heroOffsets;
-}
-
-class _OnboardingPageView extends StatelessWidget {
-  const _OnboardingPageView({
-    required this.page,
-    required this.ambient,
-    this.extraChild,
-  });
-
-  final _OnboardingPage page;
-  final Animation<double> ambient;
-  final Widget? extraChild;
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(24, 8, 24, 160),
-      physics: const BouncingScrollPhysics(),
-      child: Column(
-        children: [
-          SizedBox(
-            height: 300,
-            child: _OnboardingHero(
-              icon: page.icon,
-              accent: page.accent,
-              offsets: page.heroOffsets,
-              ambient: ambient,
-            ),
-          ),
-          const SizedBox(height: 28),
-          Text(
-            page.label.toUpperCase(),
-            style: GoogleFonts.inter(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 2.4,
-              color: page.accent.withValues(alpha: 0.9),
-            ),
-          ),
-          const SizedBox(height: 14),
-          _GradientTitle(text: page.title),
-          const SizedBox(height: 16),
-          Text(
-            page.subtitle,
-            style: GoogleFonts.inter(
-              fontSize: 16,
-              fontWeight: FontWeight.w400,
-              color: ForgePalette.textSecondary,
-              height: 1.55,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          if (extraChild != null) ...[
-            const SizedBox(height: 24),
-            extraChild!,
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _OptionalDeploySetupCard extends StatelessWidget {
-  const _OptionalDeploySetupCard({
-    required this.authMethod,
-    required this.isSaving,
-    required this.onAuthChanged,
-    required this.onSave,
-    required this.onSkip,
-  });
-
-  final DeployAuthMethodOption authMethod;
-  final bool isSaving;
-  final ValueChanged<DeployAuthMethodOption> onAuthChanged;
-  final VoidCallback onSave;
-  final VoidCallback onSkip;
-
-  String _authLabel(DeployAuthMethodOption value) {
-    switch (value) {
-      case DeployAuthMethodOption.token:
-        return 'Easy: Firebase login token';
-      case DeployAuthMethodOption.serviceAccount:
-        return 'Advanced: Service account JSON';
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    final isToken = authMethod == DeployAuthMethodOption.token;
-    final setupCommand = isToken
-        ? 'firebase login:ci'
-        : 'Create service account JSON and add FIREBASE_SERVICE_ACCOUNT secret';
-    final secretName =
-        isToken ? 'FIREBASE_TOKEN' : 'FIREBASE_SERVICE_ACCOUNT';
-    return ForgePanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Deploy setup (very easy)',
-            style: textTheme.titleMedium?.copyWith(
-              color: ForgePalette.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Set this once so AI can deploy Firebase functions from GitHub.',
-            style: textTheme.bodySmall?.copyWith(
-              color: ForgePalette.textSecondary,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            'Choose setup mode',
-            style: textTheme.labelLarge?.copyWith(
-              color: ForgePalette.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: DeployAuthMethodOption.values.map((option) {
-              final selected = option == authMethod;
-              return ChoiceChip(
-                label: Text(_authLabel(option)),
-                selected: selected,
-                onSelected: isSaving
-                    ? null
-                    : (_) => onAuthChanged(option),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 10),
-          _DeploySetupHint(
-            text:
-                '1) Run `$setupCommand` on your laptop.\n'
-                '2) Copy the output token/JSON.\n'
-                '3) In GitHub repo secrets, add `$secretName`.\n'
-                '4) Use Agent -> Deploy functions.',
-          ),
-          const SizedBox(height: 10),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: ForgeSecondaryButton(
-              label: isToken ? 'Copy firebase login command' : 'Copy secret name',
-              icon: Icons.copy_rounded,
-              onPressed: isSaving
-                  ? null
-                  : () async {
-                      await Clipboard.setData(
-                        ClipboardData(text: isToken ? 'firebase login:ci' : secretName),
-                      );
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            isToken
-                                ? 'Copied: firebase login:ci'
-                                : 'Copied: $secretName',
-                          ),
+                const SizedBox(height: 40),
+                const _VibeRadarWordmark(),
+                const SizedBox(height: 28),
+                _StepDots(current: _step),
+                const SizedBox(height: 28),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 340),
+                    transitionBuilder: (child, animation) {
+                      return FadeTransition(
+                        opacity: animation,
+                        child: SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(0.0, 0.04),
+                            end: Offset.zero,
+                          ).animate(CurvedAnimation(
+                            parent: animation,
+                            curve: Curves.easeOutCubic,
+                          )),
+                          child: child,
                         ),
                       );
                     },
+                    child: KeyedSubtree(
+                      key: ValueKey(_step),
+                      child: _buildStep(),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: ForgeSecondaryButton(
-                  label: 'Skip for now',
-                  onPressed: isSaving ? null : onSkip,
-                  expanded: true,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: ForgePrimaryButton(
-                  label: isSaving ? 'Saving...' : 'Save setup',
-                  icon: Icons.cloud_done_rounded,
-                  onPressed: isSaving ? null : onSave,
-                  expanded: true,
-                ),
-              ),
-            ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStep() {
+    switch (_step) {
+      case 0:
+        return _Step1(
+          apiKeyController: _apiKeyController,
+          obscureApiKey: _obscureApiKey,
+          onToggleObscure: () =>
+              setState(() => _obscureApiKey = !_obscureApiKey),
+          onSkip: () => setState(() => _step = 1),
+          onContinue: () => setState(() => _step = 1),
+        );
+      case 1:
+        return _Step2(
+          folderPath: _musicFolderPath,
+          picking: _pickingFolder,
+          onPickFolder: _pickFolder,
+          onSkip: () => setState(() => _step = 2),
+          onContinue: () => setState(() => _step = 2),
+        );
+      case 2:
+        return _Step3(
+          regions: _regions,
+          regionOrder: _kRegionOrder,
+          regionFlags: _kRegionFlags,
+          regionNames: _kRegionNames,
+          saving: _saving,
+          onToggle: (code, val) => setState(() => _regions[code] = val),
+          onGetStarted: _complete,
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+}
+
+// ── Shared components ─────────────────────────────────────────────────────────
+
+class _VibeRadarWordmark extends StatelessWidget {
+  const _VibeRadarWordmark();
+
+  @override
+  Widget build(BuildContext context) {
+    return RichText(
+      text: TextSpan(
+        children: [
+          TextSpan(
+            text: 'Vibe',
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 30,
+              fontWeight: FontWeight.w700,
+              color: _kText,
+              letterSpacing: -0.5,
+            ),
+          ),
+          TextSpan(
+            text: 'Radar',
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 30,
+              fontWeight: FontWeight.w700,
+              color: _kCyan,
+              letterSpacing: -0.5,
+            ),
           ),
         ],
       ),
@@ -601,350 +205,537 @@ class _OptionalDeploySetupCard extends StatelessWidget {
   }
 }
 
-class _GradientTitle extends StatelessWidget {
-  const _GradientTitle({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return ShaderMask(
-      blendMode: BlendMode.srcIn,
-      shaderCallback: (bounds) {
-        return LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            ForgePalette.textPrimary,
-            ForgePalette.textPrimary.withValues(alpha: 0.92),
-            ForgePalette.glowAccent.withValues(alpha: 0.95),
-          ],
-          stops: const [0.0, 0.45, 1.0],
-        ).createShader(Rect.fromLTWH(0, 0, bounds.width, bounds.height));
-      },
-      child: Text(
-        text,
-        style: GoogleFonts.inter(
-          fontSize: 28,
-          fontWeight: FontWeight.w800,
-          height: 1.15,
-          letterSpacing: -0.6,
-          color: Colors.white,
-        ),
-        textAlign: TextAlign.center,
-      ),
-    );
-  }
-}
-
-class _OnboardingHero extends StatelessWidget {
-  const _OnboardingHero({
-    required this.icon,
-    required this.accent,
-    required this.offsets,
-    required this.ambient,
-  });
-
-  final IconData icon;
-  final Color accent;
-  final List<Offset> offsets;
-  final Animation<double> ambient;
+class _StepDots extends StatelessWidget {
+  const _StepDots({required this.current});
+  final int current;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return AnimatedBuilder(
-          animation: ambient,
-          builder: (context, child) {
-            return CustomPaint(
-              size: Size(constraints.maxWidth, constraints.maxHeight),
-              painter: _OnboardingHeroPainter(
-                offsets: offsets,
-                accent: accent,
-                rotation: ambient.value * 2 * math.pi,
-              ),
-              child: child,
-            );
-          },
-          child: Center(
-            child: _HeroOrb(icon: icon, accent: accent),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(3, (i) {
+        final active = i == current;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+          margin: const EdgeInsets.symmetric(horizontal: 4),
+          width: active ? 24 : 8,
+          height: 8,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            color: active ? _kCyan : _kEdge,
+            boxShadow: active
+                ? [
+                    BoxShadow(
+                      color: _kCyan.withValues(alpha: 0.45),
+                      blurRadius: 10,
+                      spreadRadius: -2,
+                    )
+                  ]
+                : null,
           ),
         );
-      },
+      }),
     );
   }
 }
 
-class _HeroOrb extends StatelessWidget {
-  const _HeroOrb({
-    required this.icon,
-    required this.accent,
-  });
-
-  final IconData icon;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 148,
-      height: 148,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: accent.withValues(alpha: 0.28),
-            blurRadius: 36,
-            spreadRadius: -4,
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.45),
-            blurRadius: 24,
-            offset: const Offset(0, 18),
-          ),
-        ],
-      ),
-      child: ClipOval(
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(-0.35, -0.4),
-                  radius: 1.15,
-                  colors: [
-                    accent.withValues(alpha: 0.5),
-                    ForgePalette.primaryAccent.withValues(alpha: 0.22),
-                    ForgePalette.surfaceElevated.withValues(alpha: 0.95),
-                  ],
-                  stops: const [0.0, 0.42, 1.0],
-                ),
-              ),
-            ),
-            BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Colors.white.withValues(alpha: 0.14),
-                      Colors.transparent,
-                      accent.withValues(alpha: 0.12),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            Center(
-              child: Container(
-                width: 108,
-                height: 108,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.18),
-                    width: 1.2,
-                  ),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      ForgePalette.surface.withValues(alpha: 0.55),
-                      ForgePalette.surfaceElevated.withValues(alpha: 0.35),
-                    ],
-                  ),
-                ),
-                child: Icon(
-                  icon,
-                  size: 48,
-                  color: ForgePalette.textPrimary,
-                  shadows: [
-                    Shadow(
-                      color: accent.withValues(alpha: 0.55),
-                      blurRadius: 18,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _OnboardingHeroPainter extends CustomPainter {
-  _OnboardingHeroPainter({
-    required this.offsets,
-    required this.accent,
-    required this.rotation,
-  });
-
-  final List<Offset> offsets;
-  final Color accent;
-  final double rotation;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final r = size.shortestSide * 0.42;
-
-    final orbitPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.1;
-
-    for (var i = 0; i < 3; i++) {
-      final t = i / 3.0;
-      orbitPaint.color = accent.withValues(alpha: 0.08 + t * 0.1);
-      canvas.save();
-      canvas.translate(center.dx, center.dy);
-      canvas.rotate(rotation * (i == 0 ? 1 : (i == 1 ? -0.65 : 0.4)));
-      canvas.translate(-center.dx, -center.dy);
-      canvas.drawOval(
-        Rect.fromCenter(center: center, width: r * (2.1 + i * 0.38), height: r * (1.55 + i * 0.22)),
-        orbitPaint,
-      );
-      canvas.restore();
-    }
-
-    final glow = Paint()..style = PaintingStyle.fill;
-    for (var i = 0; i < offsets.length; i++) {
-      final o = offsets[i];
-      final c = Offset(o.dx * size.width, o.dy * size.height);
-      final radius = size.shortestSide * (0.2 + (i * 0.055));
-      final gradient = RadialGradient(
-        colors: [
-          (i == 0 ? accent : ForgePalette.primaryAccent).withValues(alpha: 0.22),
-          (i == 0 ? accent : ForgePalette.primaryAccent).withValues(alpha: 0.0),
-        ],
-      );
-      glow.shader = gradient.createShader(
-        Rect.fromCircle(center: c, radius: radius),
-      );
-      canvas.drawCircle(c, radius, glow);
-    }
-
-    final sparkPaint = Paint()
-      ..color = ForgePalette.textPrimary.withValues(alpha: 0.35)
-      ..style = PaintingStyle.fill;
-    final sparkR = size.shortestSide * 0.008;
-    for (var s = 0; s < 10; s++) {
-      final a = rotation + s * (math.pi / 5);
-      final dist = r * (1.05 + (s % 3) * 0.12);
-      final p = Offset(
-        center.dx + math.cos(a) * dist,
-        center.dy + math.sin(a) * dist * 0.72,
-      );
-      canvas.drawCircle(p, sparkR + (s.isEven ? 0.4 : 0), sparkPaint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _OnboardingHeroPainter oldDelegate) {
-    return oldDelegate.rotation != rotation ||
-        oldDelegate.accent != accent ||
-        oldDelegate.offsets != offsets;
-  }
-}
-
-class _DeploySetupHint extends StatelessWidget {
-  const _DeploySetupHint({required this.text});
-
-  final String text;
+class _Card extends StatelessWidget {
+  const _Card({required this.child, this.padding});
+  final Widget child;
+  final EdgeInsets? padding;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: padding ?? const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: ForgePalette.border),
-        color: ForgePalette.surface.withValues(alpha: 0.35),
+        color: _kPanel,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _kEdge),
       ),
-      child: Text(
-        text,
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: ForgePalette.textSecondary,
-          height: 1.4,
+      child: child,
+    );
+  }
+}
+
+class _PrimaryButton extends StatelessWidget {
+  const _PrimaryButton({
+    required this.label,
+    required this.onPressed,
+    this.loading = false,
+  });
+  final String label;
+  final VoidCallback? onPressed;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: FilledButton(
+        style: FilledButton.styleFrom(
+          backgroundColor: _kCyan,
+          foregroundColor: _kInk,
+          disabledBackgroundColor: _kEdge,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        onPressed: loading ? null : onPressed,
+        child: loading
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: _kInk,
+                ),
+              )
+            : Text(
+                label,
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                  color: _kInk,
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+class _OutlineButton extends StatelessWidget {
+  const _OutlineButton({required this.label, required this.onPressed});
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: _kText,
+          side: const BorderSide(color: _kEdge),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        onPressed: onPressed,
+        child: Text(
+          label,
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w600,
+            fontSize: 15,
+            color: _kText.withValues(alpha: 0.7),
+          ),
         ),
       ),
     );
   }
 }
 
-class _OnboardingBackdrop extends StatelessWidget {
-  const _OnboardingBackdrop();
+// ── Step 1 — Welcome + OpenAI key ─────────────────────────────────────────────
+
+class _Step1 extends StatelessWidget {
+  const _Step1({
+    required this.apiKeyController,
+    required this.obscureApiKey,
+    required this.onToggleObscure,
+    required this.onSkip,
+    required this.onContinue,
+  });
+
+  final TextEditingController apiKeyController;
+  final bool obscureApiKey;
+  final VoidCallback onToggleObscure;
+  final VoidCallback onSkip;
+  final VoidCallback onContinue;
 
   @override
   Widget build(BuildContext context) {
-    final h = MediaQuery.sizeOf(context).height;
-    return IgnorePointer(
-      child: Stack(
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: const BoxDecoration(
-                gradient: ForgePalette.backgroundGlow,
-              ),
+          Text(
+            'Welcome to VibeRadar',
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 26,
+              fontWeight: FontWeight.w700,
+              color: _kText,
+              height: 1.1,
             ),
           ),
-          Positioned(
-            top: -100,
-            right: -80,
-            child: Container(
-              width: 320,
-              height: 320,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    ForgePalette.glowAccent.withValues(alpha: 0.14),
-                    ForgePalette.glowAccent.withValues(alpha: 0.0),
+          const SizedBox(height: 8),
+          Text(
+            'The global music intelligence platform',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 15,
+              color: _kMuted,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 28),
+          _Card(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: _kCyan.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.key_rounded,
+                        color: _kCyan,
+                        size: 18,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'OpenAI API Key',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: _kText,
+                            ),
+                          ),
+                          Text(
+                            'Optional — powers AI-driven insights',
+                            style: GoogleFonts.plusJakartaSans(
+                              fontSize: 12,
+                              color: _kMuted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
-              ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: apiKeyController,
+                  obscureText: obscureApiKey,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: _kText,
+                    fontFamily: 'monospace',
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'sk-...',
+                    hintStyle: const TextStyle(
+                      fontSize: 13,
+                      color: _kMuted,
+                      fontFamily: 'monospace',
+                    ),
+                    filled: true,
+                    fillColor: _kRaised,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: _kEdge),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: _kEdge),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: _kCyan, width: 1.5),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        obscureApiKey
+                            ? Icons.visibility_off_rounded
+                            : Icons.visibility_rounded,
+                        color: _kMuted,
+                        size: 18,
+                      ),
+                      onPressed: onToggleObscure,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                GestureDetector(
+                  onTap: onSkip,
+                  child: Text(
+                    'Skip for now',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 13,
+                      color: _kCyan.withValues(alpha: 0.8),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          Positioned(
-            bottom: 140,
-            left: -100,
-            child: Container(
-              width: 260,
-              height: 260,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    ForgePalette.primaryAccent.withValues(alpha: 0.1),
-                    ForgePalette.primaryAccent.withValues(alpha: 0.0),
+          const SizedBox(height: 24),
+          _PrimaryButton(label: 'Continue', onPressed: onContinue),
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Step 2 — Music folder ─────────────────────────────────────────────────────
+
+class _Step2 extends StatelessWidget {
+  const _Step2({
+    required this.folderPath,
+    required this.picking,
+    required this.onPickFolder,
+    required this.onSkip,
+    required this.onContinue,
+  });
+
+  final String? folderPath;
+  final bool picking;
+  final VoidCallback onPickFolder;
+  final VoidCallback onSkip;
+  final VoidCallback onContinue;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "Where's your music?",
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 26,
+              fontWeight: FontWeight.w700,
+              color: _kText,
+              height: 1.1,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Point VibeRadar at your local library to scan tracks and gather trends.',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 15,
+              color: _kMuted,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 28),
+          _Card(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _kCyan,
+                      side: const BorderSide(color: _kCyan, width: 1.2),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: picking ? null : onPickFolder,
+                    icon: picking
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: _kCyan,
+                            ),
+                          )
+                        : const Icon(Icons.folder_open_rounded, size: 18),
+                    label: Text(
+                      picking ? 'Choosing…' : 'Choose Folder',
+                      style: GoogleFonts.plusJakartaSans(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Icon(
+                      folderPath != null
+                          ? Icons.check_circle_rounded
+                          : Icons.folder_off_rounded,
+                      size: 16,
+                      color: folderPath != null ? _kLime : _kMuted,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        folderPath ?? 'No folder selected yet',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 12,
+                          color: folderPath != null ? _kText : _kMuted,
+                          fontWeight: folderPath != null
+                              ? FontWeight.w500
+                              : FontWeight.w400,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
+                      ),
+                    ),
                   ],
                 ),
-              ),
+              ],
             ),
           ),
-          Positioned(
-            top: h * 0.35,
-            left: -40,
-            child: Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    ForgePalette.glowAccent.withValues(alpha: 0.06),
-                    Colors.transparent,
-                  ],
-                ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: _OutlineButton(label: 'Skip', onPressed: onSkip),
               ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _PrimaryButton(label: 'Continue', onPressed: onContinue),
+              ),
+            ],
+          ),
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Step 3 — Regions ──────────────────────────────────────────────────────────
+
+class _Step3 extends StatelessWidget {
+  const _Step3({
+    required this.regions,
+    required this.regionOrder,
+    required this.regionFlags,
+    required this.regionNames,
+    required this.saving,
+    required this.onToggle,
+    required this.onGetStarted,
+  });
+
+  final Map<String, bool> regions;
+  final List<String> regionOrder;
+  final Map<String, String> regionFlags;
+  final Map<String, String> regionNames;
+  final bool saving;
+  final void Function(String code, bool val) onToggle;
+  final VoidCallback onGetStarted;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Which markets do you care about?',
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 26,
+              fontWeight: FontWeight.w700,
+              color: _kText,
+              height: 1.1,
             ),
           ),
+          const SizedBox(height: 8),
+          Text(
+            'Select the regions you want to track. You can adjust this later in Settings.',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 15,
+              color: _kMuted,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 24),
+          _Card(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              children: regionOrder.map((code) {
+                final selected = regions[code] ?? false;
+                return InkWell(
+                  onTap: () => onToggle(code, !selected),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 10,
+                    ),
+                    child: Row(
+                      children: [
+                        Text(
+                          regionFlags[code] ?? '',
+                          style: const TextStyle(fontSize: 22),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                regionNames[code] ?? code,
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: _kText,
+                                ),
+                              ),
+                              Text(
+                                code,
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 12,
+                                  color: _kMuted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Checkbox(
+                          value: selected,
+                          onChanged: (v) => onToggle(code, v ?? false),
+                          activeColor: _kViolet,
+                          checkColor: Colors.white,
+                          side: const BorderSide(color: _kEdge, width: 1.5),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          const SizedBox(height: 24),
+          _PrimaryButton(
+            label: 'Get Started',
+            onPressed: saving ? null : onGetStarted,
+            loading: saving,
+          ),
+          const SizedBox(height: 32),
         ],
       ),
     );

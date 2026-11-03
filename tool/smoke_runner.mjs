@@ -14,7 +14,7 @@ const mode = modeIndex >= 0 ? process.argv[modeIndex + 1] : 'backend';
 const context = collectLaunchContext();
 const summary = summarizeValidation(context);
 
-console.log(`CodeCatalystAI smoke runner (${mode})`);
+console.log(`CodeCatalystAi smoke runner (${mode})`);
 
 if (summary.errors.length > 0) {
   printList('Blocking errors', summary.errors);

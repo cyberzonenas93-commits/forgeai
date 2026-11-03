@@ -1,7 +1,7 @@
-# CodeCatalystAI Working Memory
+# CodeCatalystAi Working Memory
 
 ## Current System In One Pass
-CodeCatalystAI is a distributed, agent-first mobile coding system.
+CodeCatalystAi is a distributed, agent-first mobile coding system.
 
 The strongest path today is:
 

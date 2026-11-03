@@ -44,4 +44,4 @@ Small TestFlight-style beta focused on authentication, repository operations, AI
 - Route blocker or high-severity auth, token, crash, or PR/MR issues to the launch owner within the same day
 
 ## TestFlight Notes Draft
-- "CodeCatalystAI beta adds mobile repository review, AI agent-driven diff generation, GitHub/GitHub actions, and CI checks. Please focus on sign-in, repo connection, editing, AI diff approval, and workflow reliability."
+- "CodeCatalystAi beta adds mobile repository review, AI agent-driven diff generation, GitHub/GitHub actions, and CI checks. Please focus on sign-in, repo connection, editing, AI diff approval, and workflow reliability."

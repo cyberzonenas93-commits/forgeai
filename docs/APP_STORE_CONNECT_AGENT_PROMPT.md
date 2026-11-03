@@ -1,6 +1,6 @@
-# App Store Connect — fully automated agent prompt (CodeCatalystAI)
+# App Store Connect — fully automated agent prompt (CodeCatalystAi)
 
-Copy everything inside the **fenced block** below and give it to an AI agent (or autonomous browser agent) that is already signed into [App Store Connect](https://appstoreconnect.apple.com) and navigated to **My Apps → CodeCatalystAI** (or the app record matching bundle ID `com.angelonartey.forgeai`). The agent should work through every section until metadata, compliance, pricing, and IAP **except** attaching a **build** and **uploading screenshots / preview video**—those remain for the human.
+Copy everything inside the **fenced block** below and give it to an AI agent (or autonomous browser agent) that is already signed into [App Store Connect](https://appstoreconnect.apple.com) and navigated to **My Apps → CodeCatalystAi** (or the app record matching bundle ID `com.angelonartey.forgeai`). The agent should work through every section until metadata, compliance, pricing, and IAP **except** attaching a **build** and **uploading screenshots / preview video**—those remain for the human.
 
 **Live URLs (Firebase Hosting, deployed):**
 
@@ -15,7 +15,7 @@ Copy everything inside the **fenced block** below and give it to an AI agent (or
 ## Prompt for the agent (copy from here)
 
 ```
-You are an App Store Connect setup specialist. You are logged into App Store Connect and viewing the iOS app record for CodeCatalystAI (bundle ID: com.angelonartey.forgeai). Your job is to complete every configurable field, questionnaire, and listing element required for submission, using only accurate information supplied below. Do not invent features, data practices, or integrations that are not listed here.
+You are an App Store Connect setup specialist. You are logged into App Store Connect and viewing the iOS app record for CodeCatalystAi (bundle ID: com.angelonartey.forgeai). Your job is to complete every configurable field, questionnaire, and listing element required for submission, using only accurate information supplied below. Do not invent features, data practices, or integrations that are not listed here.
 
 ## Hard stop conditions — do not do these
 
@@ -27,12 +27,12 @@ You are an App Store Connect setup specialist. You are logged into App Store Con
 
 ## Product facts (use verbatim where appropriate)
 
-- **App Store name (max 30 characters):** CodeCatalystAI
+- **App Store name (max 30 characters):** CodeCatalystAi
 - **Subtitle (max 30 characters):** Git, edit & AI for developers
 - **Bundle ID:** com.angelonartey.forgeai
 - **Primary language:** English (U.S.)
 - **SKU (if creating new app — otherwise leave):** forgeai-ios-001 (or any unique SKU not already used in the account)
-- **User-facing description of the app:** CodeCatalystAI is a mobile developer companion for browsing Git repositories, reading and editing code, reviewing diffs, and preparing changes. Users sign in (guest, email, Google, Sign in with Apple, or GitHub), connect GitHub or GitHub, and work with their own repositories. AI-assisted suggestions are optional and always user-initiated; suggested changes are shown for review before any commit or pull/merge request. The app includes wallet and usage accounting for AI and automation actions, optional subscriptions and token packs (In-App Purchase), push notifications (optional), and CI workflow triggers where the user’s provider supports it. The app does not provide a terminal, shell, remote desktop, arbitrary command execution, or autonomous merge without user approval.
+- **User-facing description of the app:** CodeCatalystAi is a mobile developer companion for browsing Git repositories, reading and editing code, reviewing diffs, and preparing changes. Users sign in (guest, email, Google, Sign in with Apple, or GitHub), connect GitHub or GitHub, and work with their own repositories. AI-assisted suggestions are optional and always user-initiated; suggested changes are shown for review before any commit or pull/merge request. The app includes wallet and usage accounting for AI and automation actions, optional subscriptions and token packs (In-App Purchase), push notifications (optional), and CI workflow triggers where the user’s provider supports it. The app does not provide a terminal, shell, remote desktop, arbitrary command execution, or autonomous merge without user approval.
 
 ## URLs (required / optional)
 
@@ -53,7 +53,7 @@ Browse repos, edit code, and start AI agent runs on the go—then review diffs b
 
 ## Description (App Store; max 4000 characters; review-safe, no misleading claims)
 
-CodeCatalystAI helps developers work with Git repositories from their phone or tablet.
+CodeCatalystAi helps developers work with Git repositories from their phone or tablet.
 
 WHAT YOU CAN DO
 • Sign in with guest access, email, Google, Sign in with Apple, or GitHub
@@ -110,7 +110,7 @@ The app uses standard HTTPS and platform cryptography for authentication and tra
 
 Use these **exact Product IDs** (they must match the app and server configuration):
 
-**Auto-renewable subscriptions** (same subscription group, e.g. “CodeCatalystAI Plans”):
+**Auto-renewable subscriptions** (same subscription group, e.g. “CodeCatalystAi Plans”):
 
 | Product ID | Reference name | Suggested display name | Suggested description (store-facing, accurate) |
 |------------|------------------|-------------------------|-----------------------------------------------|
@@ -174,14 +174,14 @@ Push notifications may be used for optional alerts. Photo library, microphone, a
 ## Copyright and promotional fields
 
 - **Copyright line:** Use the legal name from the Apple Developer account (individual or organization), e.g. “© 2026 [Legal name as on developer account].” Replace with the exact entity name shown in Membership details.
-- **Trade name / app name** on store: CodeCatalystAI
+- **Trade name / app name** on store: CodeCatalystAi
 
 ## Review notes (paste into “App Review Information” / Notes for reviewer)
 
 Use this text (adjust only if something is no longer true):
 
 ---
-For App Review — CodeCatalystAI
+For App Review — CodeCatalystAi
 
 Purpose: Mobile developer tool to browse GitHub/GitHub repositories, edit files, review diffs, and create branches, commits, and pull/merge requests. Optional user-initiated AI agent runs generate changes that are shown for review before commit or PR/MR. Optional CI workflow triggers and results. Wallet with In-App Purchase subscriptions and token packs.
 

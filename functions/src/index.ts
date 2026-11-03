@@ -529,7 +529,7 @@ async function sendPushNotification(input: SendPushNotificationInput) {
     android: {
       priority: 'high',
       notification: {
-        channelId: 'forgeai_default',
+        channelId: 'codecatalystai_default',
       },
     },
     apns: {
@@ -562,12 +562,12 @@ async function maybeSendLowBalanceNotification(ownerId: string) {
     category: 'wallet',
     type: 'wallet_alert',
     title: 'Token balance running low',
-    body: `${Math.max(0, Math.floor(balance))} tokens remain in your CodeCatalystAI wallet.`,
+    body: `${Math.max(0, Math.floor(balance))} tokens remain in your CodeCatalystAi wallet.`,
     destination: 'wallet',
   });
 }
 
-functions.logger.info('forgeai_runtime_validation', {
+functions.logger.info('codecatalystai_runtime_validation', {
   appEnv: runtimeValidation.settings.appEnv,
   projectId: runtimeValidation.settings.projectId,
   strictValidation: runtimeValidation.settings.strictValidation,
@@ -2654,7 +2654,7 @@ Rules:
 
 ${truncate(idea, 2000)}
 
-Generated with CodeCatalystAI.
+Generated with CodeCatalystAi.
 `;
   if (files.length === 0) {
     files = [
@@ -2911,7 +2911,7 @@ async function writeOperationalMetric(metric: OperationalMetric) {
     ...metric,
     metadata: metric.metadata ?? null,
   };
-  functions.logger.info('forgeai_metric', payload);
+  functions.logger.info('codecatalystai_metric', payload);
   try {
     await db.collection('opsMetrics').add({
       ...payload,
@@ -2919,7 +2919,7 @@ async function writeOperationalMetric(metric: OperationalMetric) {
     });
   } catch (error) {
     const normalizedError = normalizeError(error);
-    functions.logger.warn('forgeai_metric_write_failed', {
+    functions.logger.warn('codecatalystai_metric_write_failed', {
       operation: metric.operation,
       errorCode: normalizedError.code,
       errorMessage: normalizedError.message,
@@ -3313,7 +3313,7 @@ function buildGitHubHeaders(token: string) {
     Accept: 'application/vnd.github+json',
     Authorization: `Bearer ${token}`,
     'X-GitHub-Api-Version': '2022-11-28',
-    'User-Agent': 'CodeCatalystAI',
+    'User-Agent': 'CodeCatalystAi',
     'Content-Type': 'application/json',
   };
 }
@@ -4414,7 +4414,7 @@ async function hydrateRepoExecutionContext(params: {
     focusModules: [] as string[],
     architectureNotes: [] as string[],
     unresolvedQuestions: [] as string[],
-    needsBroadContext: knowledgeMap.budget.exactWholeRepoEligible,
+    needsBroadContext: knowledgeMap.budget.exactWholeRepoEligible as boolean,
   };
   if (!knowledgeMap.budget.exactWholeRepoEligible && executionCandidateEntries.length > 0) {
     try {
@@ -5448,7 +5448,7 @@ async function executeAgentPullRequestFollowUp(
   }
   const prTitle = `Agent task: ${truncate(normalizeText(task.prompt), 88)}`;
   const prDescription =
-    `Opened from CodeCatalystAI agent task ${taskId} after user approval.\n\n${task.executionSummary ?? task.prompt}`;
+    `Opened from CodeCatalystAi agent task ${taskId} after user approval.\n\n${task.executionSummary ?? task.prompt}`;
   const result = await openRemotePullRequest(
     provider,
     tokenInfo.token,
@@ -8507,7 +8507,7 @@ async function handleConversationalPrompt(
     const result = await callProviderTextCompletion({
       provider: lightProvider,
       systemPrompt:
-        'You are ForgeAI, a mobile AI Git client that helps users review, edit, and ship code. ' +
+        'You are CodeCatalystAi, a mobile AI Git client that helps users review, edit, and ship code. ' +
         'The user sent a conversational message instead of a code task. Reply in 1-2 short sentences. ' +
         'Be friendly and briefly remind them you can help with code tasks like implementing features, ' +
         'fixing bugs, refactoring, opening PRs, etc.',
@@ -8519,7 +8519,7 @@ async function handleConversationalPrompt(
     replyText = result.text;
   } catch {
     replyText =
-      "Hey! I'm ForgeAI — I help with code tasks like implementing features, fixing bugs, " +
+      "Hey! I'm CodeCatalystAi - I help with code tasks like implementing features, fixing bugs, " +
       'refactoring, and opening PRs. What would you like me to work on?';
   }
 
@@ -9822,7 +9822,7 @@ function toAiSuggestionDraft(
     providerUsed,
     model,
     summary: summaryLine || `Legacy AI draft for ${fallbackContext.filePath}`,
-    rationale: `The provider returned non-JSON output, so CodeCatalystAI preserved it as a reviewable draft.`,
+    rationale: `The provider returned non-JSON output, so CodeCatalystAi preserved it as a reviewable draft.`,
     afterContent: fallbackContext.baseContent ?? '',
     diffPreview: truncate(
       buildUnifiedDiff(
@@ -9850,7 +9850,7 @@ function buildFallbackDraft(fallbackContext: {
     providerUsed: 'openai' as const,
     model: null,
     summary: `Drafted mobile-safe change for ${fallbackContext.filePath}`,
-    rationale: `CodeCatalystAI could not reach an AI provider, so it created a conservative draft from the user prompt.`,
+    rationale: `CodeCatalystAi could not reach an AI provider, so it created a conservative draft from the user prompt.`,
     afterContent: fallbackContext.baseContent ?? '',
     diffPreview: buildUnifiedDiff(
       fallbackContext.filePath,
@@ -9881,7 +9881,7 @@ async function callAiProvider(
 
   const model = modelOverride ?? defaultModelFor(provider);
   const systemPrompt =
-    'You are CodeCatalystAI, a mobile-first code assistant. The user describes changes in everyday language. You have full authority to edit this path: apply their request completely—rewrite the whole file, refactor structure, add or remove large sections, or replace the entire contents when that is what they want. If baseContent is missing or empty, treat the file as new and return the complete file text they asked for. Return only valid JSON with keys summary, rationale, modifiedContent, diffPreview, riskNotes, suggestedCommitMessage, and estimatedTokens. modifiedContent must always be the full file after your edits (never a fragment or patch-only body). For summary, rationale, and riskNotes: write like a helpful teammate—short, natural sentences in plain English. Do not use log-style labels (e.g. "Summary:", "INFO:", "Output:"), bullet dumps, or stiff technical report tone. suggestedCommitMessage should read like a normal human git message, not a machine tag. Mention any risky or destructive edits briefly in riskNotes.';
+    'You are CodeCatalystAi, a mobile-first code assistant. The user describes changes in everyday language. You have full authority to edit this path: apply their request completely—rewrite the whole file, refactor structure, add or remove large sections, or replace the entire contents when that is what they want. If baseContent is missing or empty, treat the file as new and return the complete file text they asked for. Return only valid JSON with keys summary, rationale, modifiedContent, diffPreview, riskNotes, suggestedCommitMessage, and estimatedTokens. modifiedContent must always be the full file after your edits (never a fragment or patch-only body). For summary, rationale, and riskNotes: write like a helpful teammate—short, natural sentences in plain English. Do not use log-style labels (e.g. "Summary:", "INFO:", "Output:"), bullet dumps, or stiff technical report tone. suggestedCommitMessage should read like a normal human git message, not a machine tag. Mention any risky or destructive edits briefly in riskNotes.';
   const userPrompt = JSON.stringify({
     repoFullName: context.repoFullName,
     filePath: context.filePath,
@@ -9974,7 +9974,7 @@ async function runSubAgent(
   task: string,
   sharedContext: string,
 ): Promise<string> {
-  const subSystemPrompt = `You are helping CodeCatalystAI as: ${role || 'assistant'}. Context (repos/files): ${truncate(sharedContext, 1500)}. Answer the task in plain, conversational English—like explaining to a colleague. No log prefixes, no fake "DEBUG/INFO" lines, no dense numbered pipelines unless the user clearly asked for steps. Be concise and useful.`;
+  const subSystemPrompt = `You are helping CodeCatalystAi as: ${role || 'assistant'}. Context (repos/files): ${truncate(sharedContext, 1500)}. Answer the task in plain, conversational English—like explaining to a colleague. No log prefixes, no fake "DEBUG/INFO" lines, no dense numbered pipelines unless the user clearly asked for steps. Be concise and useful.`;
   return callAiChatText(provider, subSystemPrompt, task, [], []);
 }
 
@@ -12001,7 +12001,7 @@ export const connectRepository = onCall(GIT_CALLABLE_OPTIONS, async request => {
       category: 'repository',
       type: 'repo_connected',
       title: 'Repository connected',
-      body: `${owner}/${name} is now available in CodeCatalystAI.`,
+      body: `${owner}/${name} is now available in CodeCatalystAi.`,
       destination: 'repo',
       repoId,
     });
@@ -12281,7 +12281,7 @@ export const createProjectRepository = onCall(
         index += 1;
         const commitMessage =
           index === 1
-            ? 'chore: initial scaffold from CodeCatalystAI'
+            ? 'chore: initial scaffold from CodeCatalystAi'
             : `chore: add ${file.path}`;
         await commitRemoteChanges(
           provider,
@@ -12451,7 +12451,7 @@ export const syncRepository = onCall(GIT_CALLABLE_OPTIONS, async request => {
       category: 'repository',
       type: 'repo_sync_completed',
       title: 'Repository synced',
-      body: `${owner}/${name} finished syncing in CodeCatalystAI.`,
+      body: `${owner}/${name} finished syncing in CodeCatalystAi.`,
       destination: 'repo',
       repoId: generatedRepoId,
     });
@@ -12835,7 +12835,7 @@ Legacy tool-based execution (enabled for this Prompt):
 - After successful saves, summarize changes plainly and remind them to review or commit from Editor / Git when ready.`
     : '';
 
-  const systemPrompt = `You are CodeCatalystAI, an autonomous coding agent on mobile. Behave like a strong IDE coding assistant: confident, practical, and action-first. The user has connected repositories and expects you to work from repo context immediately.
+  const systemPrompt = `You are CodeCatalystAi, an autonomous coding agent on mobile. Behave like a strong IDE coding assistant: confident, practical, and action-first. The user has connected repositories and expects you to work from repo context immediately.
 
 ${repoContext}
 
@@ -14099,7 +14099,7 @@ export const suggestChange = onCall(GIT_AND_AI_CALLABLE_OPTIONS, async request =
     category: 'ai',
     type: 'ai_ready',
     title: 'AI change ready to review',
-    body: `Your legacy AI draft for ${filePath} is ready in CodeCatalystAI.`,
+    body: `Your legacy AI draft for ${filePath} is ready in CodeCatalystAi.`,
     destination: 'prompt',
     repoId,
     changeRequestId: changeRef.id,
@@ -14337,7 +14337,7 @@ export const submitGitAction = onCall(GIT_CALLABLE_OPTIONS, async request => {
         branchName ?? repo.defaultBranch ?? 'main',
         baseBranch,
         prTitle ?? commitMessage ?? `Change for ${repo.fullName ?? repoId}`,
-        prDescription ?? 'Opened from CodeCatalystAI after user approval.',
+        prDescription ?? 'Opened from CodeCatalystAi after user approval.',
         repo.apiBaseUrl ?? undefined,
       );
     } else if (actionType === 'merge_pr') {
@@ -14399,7 +14399,7 @@ export const submitGitAction = onCall(GIT_CALLABLE_OPTIONS, async request => {
           defaultBranch: repo.defaultBranch,
         },
         branchName ?? repo.defaultBranch ?? 'main',
-        commitMessage ?? `CodeCatalystAI commit for ${repo.fullName ?? repoId}`,
+        commitMessage ?? `CodeCatalystAi commit for ${repo.fullName ?? repoId}`,
         fileChanges,
         repo.apiBaseUrl ?? undefined,
       );
@@ -14763,7 +14763,7 @@ export const submitCheckAction = onCall(GIT_CALLABLE_OPTIONS, async request => {
         executionState: remoteResult.status,
         logsUrl: remoteResult.logsUrl,
         remoteId: remoteResult.remoteId,
-        summary: `${workflowName} triggered from CodeCatalystAI. Monitoring workflow progress now.`,
+        summary: `${workflowName} triggered from CodeCatalystAi. Monitoring workflow progress now.`,
         monitorState: 'pending',
         updatedAt: FieldValue.serverTimestamp(),
       },

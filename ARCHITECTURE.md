@@ -5,7 +5,7 @@ Read `AGENTS.md`, `WORK_MEMORY.md`, and `ARCHITECTURE_GUARDRAILS.md` first.
 Those files define the current architectural truth, the strongest execution path, and the regressions that must not be reintroduced. This file is a supporting architecture overview, not the first source of truth for anti-drift decisions.
 
 ## System Overview
-CodeCatalystAI is split into a Flutter mobile client and a Firebase backend.
+CodeCatalystAi is split into a Flutter mobile client and a Firebase backend.
 
 ## Client
 - Flutter owns the user experience, navigation, editor shell, diff review, and all approval flows.

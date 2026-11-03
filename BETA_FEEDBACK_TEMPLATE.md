@@ -7,7 +7,7 @@ Use this template for TestFlight, internal QA, or direct tester reports.
 - Email:
 - Device model:
 - iOS version:
-- CodeCatalystAI app version:
+- CodeCatalystAi app version:
 - Beta channel:
 
 ## Flow Tested

@@ -1,8 +1,8 @@
-# CodeCatalystAI Privacy Policy
+# CodeCatalystAi Privacy Policy
 
 **Last updated:** March 2026
 
-CodeCatalystAI ("we," "our," or "the app") is a mobile application for developers to browse repositories, edit code, and use AI-assisted suggestions. This policy describes how we collect, use, and protect your information.
+CodeCatalystAi ("we," "our," or "the app") is a mobile application for developers to browse repositories, edit code, and use AI-assisted suggestions. This policy describes how we collect, use, and protect your information.
 
 ## Information We Collect
 
@@ -38,7 +38,7 @@ We use industry-standard practices (including HTTPS and secure authentication) t
 
 ## Children
 
-CodeCatalystAI is not directed at children under 13. We do not knowingly collect personal information from children under 13.
+CodeCatalystAi is not directed at children under 13. We do not knowingly collect personal information from children under 13.
 
 ## Changes
 

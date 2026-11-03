@@ -1,7 +1,7 @@
 /**
  * claude_provider.ts
  *
- * First-class Anthropic Claude provider module for ForgeAI.
+ * First-class Anthropic Claude provider module for CodeCatalystAi.
  *
  * This implementation uses the Anthropic REST API directly via fetch, matching
  * the pattern used throughout the codebase. The `@anthropic-ai/sdk` package is

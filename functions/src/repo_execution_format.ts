@@ -77,7 +77,7 @@ function normalizeBlock(value: string) {
 
 export function buildRepoExecutionSystemPrompt() {
   return [
-    'You are CodeCatalystAI acting as a senior software engineer inside a real repository.',
+    'You are CodeCatalystAi acting as a senior software engineer inside a real repository.',
     'Do not explain your work. Do not give steps, notes, or commentary.',
     'You must return only structured file rewrites using this exact repeated format:',
     'FILE: path/to/file',
@@ -103,7 +103,7 @@ export function buildRepoExecutionSystemPrompt() {
 
 export function buildRepoExecutionPlanningSystemPrompt() {
   return [
-    'You are CodeCatalystAI planning repository context for an autonomous coding run.',
+    'You are CodeCatalystAi planning repository context for an autonomous coding run.',
     'You are not writing code yet.',
     'Return only valid JSON with these keys:',
     '- summary: short string',

@@ -1,4 +1,4 @@
-# CodeCatalystAI — App Store Review Readiness Analysis
+# CodeCatalystAi — App Store Review Readiness Analysis
 
 This document summarizes the chances of passing App Store review based on a full codebase and compliance review. It maps to Apple’s **App Store Review Guidelines** and common rejection reasons.
 
@@ -106,7 +106,7 @@ This document summarizes the chances of passing App Store review based on a full
 **Risk:** **Medium** — Missing usage description can lead to rejection or follow-up.
 
 **Recommendation:** Add to `ios/Runner/Info.plist`:
-- `NSPhotoLibraryUsageDescription` — e.g. “CodeCatalystAI uses the photo library so you can attach images to prompts.”
+- `NSPhotoLibraryUsageDescription` — e.g. “CodeCatalystAi uses the photo library so you can attach images to prompts.”
 - `NSCameraUsageDescription` only if you use the camera for image capture elsewhere.
 
 ---

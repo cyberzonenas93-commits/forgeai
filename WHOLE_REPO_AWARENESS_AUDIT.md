@@ -187,4 +187,4 @@ The closer description is:
 - durable run-level memory
 - final edit scope chosen after exploration, not before it
 
-That is the current whole-repo-awareness posture of CodeCatalystAI.
+That is the current whole-repo-awareness posture of CodeCatalystAi.
