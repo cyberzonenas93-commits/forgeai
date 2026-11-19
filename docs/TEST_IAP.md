@@ -27,8 +27,8 @@ npm run deploy:functions -- --yes
 
 A **StoreKit Configuration** file is already set up for the simulator:
 
-- **File:** `ios/CodeCatalystAI.storekit` — defines Pro/Power subscriptions and token packs (same product IDs as the app).
-- **Scheme:** The **Runner** scheme points at `CodeCatalystAI.storekit` (Edit Scheme → Run → Options → StoreKit Configuration). When you run from **Xcode**, the simulator will use this config so IAP works without a Sandbox account.
+- **File:** `ios/CodeCatalystAi.storekit` — defines Pro/Power subscriptions and token packs (same product IDs as the app).
+- **Scheme:** The **Runner** scheme points at `CodeCatalystAi.storekit` (Edit Scheme → Run → Options → StoreKit Configuration). When you run from **Xcode**, the simulator will use this config so IAP works without a Sandbox account.
 
 To run:
 
@@ -42,7 +42,7 @@ Choose an **iOS** device or simulator.
 
 - **For App Store screenshots / UI capture:** default debug runs now use mock billing (no Apple ID prompt), so you can open Wallet, Paywall, and Token screens quickly.
 - **For real IAP testing in debug:** run with `--dart-define=FORGEAI_ENABLE_IAP_DEBUG=true`.
-- **For simulator StoreKit testing:** open `ios/Runner.xcworkspace` in Xcode and run the `Runner` scheme (now wired to `ios/CodeCatalystAI.storekit`).
+- **For simulator StoreKit testing:** open `ios/Runner.xcworkspace` in Xcode and run the `Runner` scheme (now wired to `ios/CodeCatalystAi.storekit`).
 - **For real device sandbox testing:** use a Sandbox Apple ID when prompted.
 
 **Android:** Use a device or emulator with Google Play; IAP is available when Play Billing is present.

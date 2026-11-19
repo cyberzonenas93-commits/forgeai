@@ -1,10 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:forge_ai/src/app.dart';
+import 'package:codecatalyst_ai/src/app.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  testWidgets('CodeCatalystAI app bootstraps', (tester) async {
+  testWidgets('CodeCatalystAi app bootstraps', (tester) async {
     SharedPreferences.setMockInitialValues({
       'forge_onboarding_completed': true,
     });

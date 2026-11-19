@@ -130,7 +130,7 @@ class InMemoryAuthRepository implements AuthRepository {
     }
     await _simulateNetworkDelay();
 
-    final email = '${provider.name}.user@forgeai.dev';
+    final email = '${provider.name}.user@codecatalystai.dev';
     final account = AuthAccount(
       id: email,
       email: email,

@@ -175,7 +175,7 @@ function buildGitHttpExtraHeader(token: string) {
 async function configureWorkspaceGitIdentity(workspacePath: string) {
   await runWorkspaceProcess({
     command: 'git',
-    args: ['config', 'user.name', 'CodeCatalystAI Agent'],
+    args: ['config', 'user.name', 'CodeCatalystAi Agent'],
     cwd: workspacePath,
     timeoutMs: 30_000,
   });

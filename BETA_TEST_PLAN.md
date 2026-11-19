@@ -1,7 +1,7 @@
 # Beta Test Plan
 
 ## Goal
-Validate that CodeCatalystAI can safely authenticate, sync repositories, edit files, generate AI diffs, open PRs/MRs, run checks, and meter token usage from mobile without exposing terminal or remote-execution behavior.
+Validate that CodeCatalystAi can safely authenticate, sync repositories, edit files, generate AI diffs, open PRs/MRs, run checks, and meter token usage from mobile without exposing terminal or remote-execution behavior.
 
 ## Tester Cohorts
 - Internal engineering: full flow coverage, console access, thorough bug finding.

@@ -1,7 +1,7 @@
 # Repo Context Strategy
 
 ## Goal
-Make CodeCatalystAI behave like a whole-repo coding agent even when literal all-file injection is not practical.
+Make CodeCatalystAi behave like a whole-repo coding agent even when literal all-file injection is not practical.
 
 The strategy is now explicitly layered, size-aware, stateful across a run, and able to widen context during execution instead of stopping at an initial top-N file slice.
 

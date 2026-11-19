@@ -1,7 +1,7 @@
 # Agent Mode Architecture
 
 ## Goal
-CodeCatalystAI now treats prompts as durable agent tasks instead of one-shot chat replies. A prompt becomes a persisted task, joins a workspace queue, emits live events while it runs, pauses for approvals, and resumes from the backend.
+CodeCatalystAi now treats prompts as durable agent tasks instead of one-shot chat replies. A prompt becomes a persisted task, joins a workspace queue, emits live events while it runs, pauses for approvals, and resumes from the backend.
 
 ## Core Components
 - Flutter client: submits prompts, watches task/event streams, shows the active work session, queued prompts, approvals, and controls.

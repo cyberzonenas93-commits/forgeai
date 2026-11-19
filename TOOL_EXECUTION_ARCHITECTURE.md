@@ -3,7 +3,7 @@
 Read `AGENTS.md`, `WORK_MEMORY.md`, and `ARCHITECTURE_GUARDRAILS.md` first.
 
 ## Goal
-CodeCatalystAI now validates agent-generated edits through a real tool suite instead of stopping at a one-pass diff. The tool layer is still bounded by the app architecture, but it now behaves like:
+CodeCatalystAi now validates agent-generated edits through a real tool suite instead of stopping at a one-pass diff. The tool layer is still bounded by the app architecture, but it now behaves like:
 
 1. Clone an isolated task-local workspace from the remote repository.
 2. Create a sandbox copy from that cloned workspace for candidate validation.

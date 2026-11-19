@@ -1,6 +1,6 @@
-# CodeCatalystAI
+# CodeCatalystAi
 
-CodeCatalystAI is a mobile-first coding-agent product for reviewing, editing, validating, and shipping code from a phone without exposing a terminal or remote desktop experience.
+CodeCatalystAi is a mobile-first coding-agent product for reviewing, editing, validating, and shipping code from a phone without exposing a terminal or remote desktop experience.
 
 Before changing core systems, read these first and in this order:
 - `AGENTS.md`
@@ -19,7 +19,7 @@ If you are changing runtime, repo context, validation, workspace, queueing, appr
 - Track AI usage through a wallet and token ledger
 
 ## Safety Model
-CodeCatalystAI is intentionally not a cloud IDE, shell, or code execution platform. Every AI or Git action is user-triggered, visibly reviewed, and approval-gated before commit or merge.
+CodeCatalystAi is intentionally not a cloud IDE, shell, or code execution platform. Every AI or Git action is user-triggered, visibly reviewed, and approval-gated before commit or merge.
 
 ## Project Layout
 - `lib/` Flutter mobile app
@@ -35,7 +35,7 @@ CodeCatalystAI is intentionally not a cloud IDE, shell, or code execution platfo
 - `MULTI_AGENT_SYSTEM.md` logical planner/context/editor/validator/repair/git orchestration
 
 ## Current Status
-CodeCatalystAI now includes:
+CodeCatalystAi now includes:
 - a premium dark Flutter mobile UI system
 - live Firebase Auth for guest, email/password, Google, Apple, and GitHub sign-in
 - a workspace controller that binds repositories, tasks, diffs, checks, wallet state, and activity into the app shell

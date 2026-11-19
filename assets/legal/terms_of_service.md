@@ -1,12 +1,12 @@
-# CodeCatalystAI Terms of Service
+# CodeCatalystAi Terms of Service
 
 **Last updated:** March 2025
 
-Welcome to CodeCatalystAI. By using the CodeCatalystAI mobile application and related services ("Service"), you agree to these Terms of Service ("Terms"). If you do not agree, do not use the Service.
+Welcome to CodeCatalystAi. By using the CodeCatalystAi mobile application and related services ("Service"), you agree to these Terms of Service ("Terms"). If you do not agree, do not use the Service.
 
 ## Use of the Service
 
-- CodeCatalystAI is a developer tool for browsing repositories, editing code, and using AI-assisted suggestions. You may use it only in compliance with these Terms and all applicable laws.
+- CodeCatalystAi is a developer tool for browsing repositories, editing code, and using AI-assisted suggestions. You may use it only in compliance with these Terms and all applicable laws.
 - You are responsible for your account credentials and for all activity under your account. You must not share account access or use the Service for any illegal or unauthorized purpose.
 - The Service relies on third-party services (e.g., GitHub, GitHub, AI providers). Your use of those services is subject to their respective terms and policies.
 
@@ -28,7 +28,7 @@ We may suspend or terminate your access if we reasonably believe you have violat
 
 ## Intellectual Property
 
-- CodeCatalystAI and its branding are owned by us. We grant you a limited, non-exclusive, revocable license to use the Service for your personal or internal business use in accordance with these Terms.
+- CodeCatalystAi and its branding are owned by us. We grant you a limited, non-exclusive, revocable license to use the Service for your personal or internal business use in accordance with these Terms.
 - You retain ownership of your code and content. By using the Service, you grant us the rights necessary to operate the Service (e.g., storing and processing your content, sending it to AI providers as described in our Privacy Policy).
 
 ## Disclaimers

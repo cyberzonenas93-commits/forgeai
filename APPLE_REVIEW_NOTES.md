@@ -1,10 +1,10 @@
 # Apple Review Notes
 
-**For App Review team:** Please use the details below when evaluating CodeCatalystAI.
+**For App Review team:** Please use the details below when evaluating CodeCatalystAi.
 
 ## App Purpose
 
-CodeCatalystAI is a mobile-first developer companion for repository browsing, code editing, AI-assisted agent runs that prepare code changes, diff review, commit preparation, pull request / merge request creation, and CI workflow triggering.
+CodeCatalystAi is a mobile-first developer companion for repository browsing, code editing, AI-assisted agent runs that prepare code changes, diff review, commit preparation, pull request / merge request creation, and CI workflow triggering.
 
 ## Important Safety Boundaries
 
@@ -56,4 +56,4 @@ This account is configured on the backend for **unlimited in-app tokens** during
 
 ## Reviewer Copy (short description for review)
 
-CodeCatalystAI is a mobile repository review and editing app for developers. It lets users authenticate, connect repositories, inspect files, make manual edits, start AI agent runs that generate code changes, review diffs, approve changes, create branches, commit, open pull requests or merge requests, and trigger CI workflows. The app does not provide shell access, remote desktop behavior, or unrestricted code execution. Privacy Policy and Terms of Service are available in-app.
+CodeCatalystAi is a mobile repository review and editing app for developers. It lets users authenticate, connect repositories, inspect files, make manual edits, start AI agent runs that generate code changes, review diffs, approve changes, create branches, commit, open pull requests or merge requests, and trigger CI workflows. The app does not provide shell access, remote desktop behavior, or unrestricted code execution. Privacy Policy and Terms of Service are available in-app.

@@ -575,7 +575,7 @@ class _ShellSidebar extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'CodeCatalystAI',
+                          'CodeCatalystAi',
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                         const SizedBox(height: 4),

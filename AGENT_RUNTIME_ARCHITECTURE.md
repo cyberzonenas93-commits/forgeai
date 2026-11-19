@@ -5,7 +5,7 @@ Read `AGENTS.md`, `WORK_MEMORY.md`, and `ARCHITECTURE_GUARDRAILS.md` first.
 This document explains the current runtime shape in detail. It does not replace the startup rules and anti-drift constraints in those files.
 
 ## Current Runtime Shape
-The main CodeCatalystAI agent path now runs as a distributed durable backend loop instead of a one-shot suggestion flow.
+The main CodeCatalystAi agent path now runs as a distributed durable backend loop instead of a one-shot suggestion flow.
 
 The latest hardening pass removes another “chatbot” remnant:
 - repo execution is no longer artificially capped to a tiny generated-file count once the context planner has already selected a broader editable wave

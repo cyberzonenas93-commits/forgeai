@@ -338,7 +338,7 @@ class ForgeMockData {
     ForgeRepository(
       id: 'repo-mobile-app',
       name: 'mobile-app',
-      owner: 'forgeai',
+      owner: 'codecatalystai',
       provider: ForgeProvider.github,
       language: 'Flutter',
       description:
@@ -351,12 +351,12 @@ class ForgeMockData {
       lastSynced: Duration(minutes: 7),
       stars: 128,
       isProtected: true,
-      htmlUrl: 'https://github.com/forgeai/mobile-app',
+      htmlUrl: 'https://github.com/codecatalystai/mobile-app',
     ),
     ForgeRepository(
       id: 'repo-docs',
       name: 'docs',
-      owner: 'forgeai',
+      owner: 'codecatalystai',
       provider: ForgeProvider.github,
       language: 'Markdown',
       description:
@@ -369,14 +369,14 @@ class ForgeMockData {
       lastSynced: Duration(hours: 2),
       stars: 22,
       isProtected: true,
-      htmlUrl: 'https://github.com/forgeai/docs',
+      htmlUrl: 'https://github.com/codecatalystai/docs',
     ),
   ];
 
   static const connections = <ForgeConnection>[
     ForgeConnection(
       provider: ForgeProvider.github,
-      account: '@forgeai',
+      account: '@codecatalystai',
       scopeSummary: 'Repos, pull requests, checks, and webhooks',
       status: ForgeConnectionStatus.connected,
       lastChecked: '2 minutes ago',
@@ -393,7 +393,7 @@ class ForgeMockData {
     ),
     ForgeActivityEntry(
       title: 'Pull request opened',
-      subtitle: 'feat/mobile-shell on forgeai/mobile-app.',
+      subtitle: 'feat/mobile-shell on codecatalystai/mobile-app.',
       timestamp: '42 min ago',
       icon: Icons.call_split_rounded,
       accent: Color(0xFFC88A2D),
@@ -447,19 +447,19 @@ class ForgeMockData {
     ForgeTokenLog(
       action: 'AI refactor preview',
       cost: '48',
-      repo: 'forgeai/mobile-app',
+      repo: 'codecatalystai/mobile-app',
       timestamp: 'Today, 10:42',
     ),
     ForgeTokenLog(
       action: 'Diff explanation',
       cost: '12',
-      repo: 'forgeai/docs',
+      repo: 'codecatalystai/docs',
       timestamp: 'Today, 09:18',
     ),
     ForgeTokenLog(
       action: 'Checks summary',
       cost: '8',
-      repo: 'forgeai/platform-api',
+      repo: 'codecatalystai/platform-api',
       timestamp: 'Yesterday',
     ),
   ];

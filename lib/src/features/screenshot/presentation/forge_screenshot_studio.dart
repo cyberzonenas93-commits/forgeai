@@ -44,7 +44,7 @@ class _ForgeScreenshotStudioState extends State<ForgeScreenshotStudio> {
 
   static final AuthAccount _previewAccount = AuthAccount(
     id: 'preview-forge-user',
-    email: 'launch@forgeai.dev',
+    email: 'launch@codecatalystai.dev',
     displayName: '$kAppDisplayName Beta',
     provider: AuthProviderKind.github,
     createdAt: DateTime(2026, 3, 18, 9),
@@ -118,7 +118,7 @@ class _ForgeScreenshotStudioState extends State<ForgeScreenshotStudio> {
     const repo = ForgeRepository(
       id: 'repo_mobile_app',
       name: 'mobile-app',
-      owner: 'forgeai',
+      owner: 'codecatalystai',
       provider: ForgeProvider.github,
       language: 'Flutter',
       description: 'Premium mobile client for AI-assisted repository review.',
@@ -130,7 +130,7 @@ class _ForgeScreenshotStudioState extends State<ForgeScreenshotStudio> {
       lastSynced: Duration(minutes: 8),
       stars: 182,
       isProtected: true,
-      htmlUrl: 'https://github.com/forgeai/mobile-app',
+      htmlUrl: 'https://github.com/codecatalystai/mobile-app',
     );
 
     const selectedFile = ForgeFileNode(
@@ -221,7 +221,7 @@ Future<void> refreshSelectedRepository() async {
       connections: const [
         ForgeConnection(
           provider: ForgeProvider.github,
-          account: 'forgeai-mobile',
+          account: 'codecatalystai-mobile',
           scopeSummary: 'repo, workflow, pull_request',
           status: ForgeConnectionStatus.connected,
           lastChecked: '2m ago',
@@ -266,13 +266,13 @@ Future<void> refreshSelectedRepository() async {
         ForgeTokenLog(
           action: 'Agent run',
           cost: '80',
-          repo: 'forgeai/mobile-app',
+          repo: 'codecatalystai/mobile-app',
           timestamp: '9m ago',
         ),
         ForgeTokenLog(
           action: 'Run tests',
           cost: '30',
-          repo: 'forgeai/mobile-app',
+          repo: 'codecatalystai/mobile-app',
           timestamp: '24m ago',
         ),
       ],

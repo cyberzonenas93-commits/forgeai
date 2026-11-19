@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Firebase Emulators",
+      "runtimeExecutable": "firebase",
+      "runtimeArgs": ["emulators:start"],
+      "port": 4000
+    },
+    {
+      "name": "Flutter App",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "run:app"],
+      "port": 8080
+    },
+    {
+      "name": "Functions TypeScript Watch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "functions", "run", "build", "--", "--watch"],
+      "port": 5001
+    }
+  ]
+}

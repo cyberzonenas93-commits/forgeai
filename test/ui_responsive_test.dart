@@ -2,41 +2,41 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:forge_ai/src/core/theme/app_theme.dart';
-import 'package:forge_ai/src/core/theme/forge_palette.dart';
-import 'package:forge_ai/src/features/account/presentation/account_settings_screen.dart';
-import 'package:forge_ai/src/features/agent/agent_mode_screen.dart';
-import 'package:forge_ai/src/features/account/presentation/delete_account_screen.dart';
-import 'package:forge_ai/src/features/activity/activity_timeline_screen.dart';
-import 'package:forge_ai/src/features/auth/application/auth_controller.dart';
-import 'package:forge_ai/src/features/auth/domain/auth_account.dart';
-import 'package:forge_ai/src/features/auth/domain/auth_failure.dart';
-import 'package:forge_ai/src/features/auth/domain/auth_provider_kind.dart';
-import 'package:forge_ai/src/features/auth/domain/auth_reauth_request.dart';
-import 'package:forge_ai/src/features/auth/domain/auth_repository.dart';
-import 'package:forge_ai/src/features/auth/presentation/auth_entry_screen.dart';
-import 'package:forge_ai/src/features/auth/presentation/create_account_screen.dart';
-import 'package:forge_ai/src/features/billing/data/mock_forge_billing_service.dart';
-import 'package:forge_ai/src/features/billing/presentation/paywall_screen.dart';
-import 'package:forge_ai/src/features/billing/presentation/token_packs_screen.dart';
-import 'package:forge_ai/src/features/checks/checks_dashboard_screen.dart';
-import 'package:forge_ai/src/features/dashboard/dashboard_screen.dart';
-import 'package:forge_ai/src/features/diff/diff_review_screen.dart';
-import 'package:forge_ai/src/features/editor/editor_workflow_screen.dart';
-import 'package:forge_ai/src/features/git/git_workflow_screen.dart';
-import 'package:forge_ai/src/features/legal/legal_document_screen.dart';
-import 'package:forge_ai/src/features/onboarding/data/onboarding_storage.dart';
-import 'package:forge_ai/src/features/onboarding/presentation/onboarding_screen.dart';
-import 'package:forge_ai/src/features/repos/account_hub_screen.dart';
-import 'package:forge_ai/src/features/repos/new_ai_project_screen.dart';
-import 'package:forge_ai/src/features/repos/repositories_screen.dart';
-import 'package:forge_ai/src/features/repos/repository_connection_screen.dart';
-import 'package:forge_ai/src/features/settings/settings_screen.dart';
-import 'package:forge_ai/src/features/wallet/wallet_screen.dart';
-import 'package:forge_ai/src/features/workspace/application/forge_workspace_controller.dart';
-import 'package:forge_ai/src/features/workspace/domain/forge_workspace_entities.dart';
-import 'package:forge_ai/src/features/workspace/domain/forge_workspace_state.dart';
-import 'package:forge_ai/src/shared/forge_models.dart';
+import 'package:codecatalyst_ai/src/core/theme/app_theme.dart';
+import 'package:codecatalyst_ai/src/core/theme/forge_palette.dart';
+import 'package:codecatalyst_ai/src/features/account/presentation/account_settings_screen.dart';
+import 'package:codecatalyst_ai/src/features/agent/agent_mode_screen.dart';
+import 'package:codecatalyst_ai/src/features/account/presentation/delete_account_screen.dart';
+import 'package:codecatalyst_ai/src/features/activity/activity_timeline_screen.dart';
+import 'package:codecatalyst_ai/src/features/auth/application/auth_controller.dart';
+import 'package:codecatalyst_ai/src/features/auth/domain/auth_account.dart';
+import 'package:codecatalyst_ai/src/features/auth/domain/auth_failure.dart';
+import 'package:codecatalyst_ai/src/features/auth/domain/auth_provider_kind.dart';
+import 'package:codecatalyst_ai/src/features/auth/domain/auth_reauth_request.dart';
+import 'package:codecatalyst_ai/src/features/auth/domain/auth_repository.dart';
+import 'package:codecatalyst_ai/src/features/auth/presentation/auth_entry_screen.dart';
+import 'package:codecatalyst_ai/src/features/auth/presentation/create_account_screen.dart';
+import 'package:codecatalyst_ai/src/features/billing/data/mock_forge_billing_service.dart';
+import 'package:codecatalyst_ai/src/features/billing/presentation/paywall_screen.dart';
+import 'package:codecatalyst_ai/src/features/billing/presentation/token_packs_screen.dart';
+import 'package:codecatalyst_ai/src/features/checks/checks_dashboard_screen.dart';
+import 'package:codecatalyst_ai/src/features/dashboard/dashboard_screen.dart';
+import 'package:codecatalyst_ai/src/features/diff/diff_review_screen.dart';
+import 'package:codecatalyst_ai/src/features/editor/editor_workflow_screen.dart';
+import 'package:codecatalyst_ai/src/features/git/git_workflow_screen.dart';
+import 'package:codecatalyst_ai/src/features/legal/legal_document_screen.dart';
+import 'package:codecatalyst_ai/src/features/onboarding/data/onboarding_storage.dart';
+import 'package:codecatalyst_ai/src/features/onboarding/presentation/onboarding_screen.dart';
+import 'package:codecatalyst_ai/src/features/repos/account_hub_screen.dart';
+import 'package:codecatalyst_ai/src/features/repos/new_ai_project_screen.dart';
+import 'package:codecatalyst_ai/src/features/repos/repositories_screen.dart';
+import 'package:codecatalyst_ai/src/features/repos/repository_connection_screen.dart';
+import 'package:codecatalyst_ai/src/features/settings/settings_screen.dart';
+import 'package:codecatalyst_ai/src/features/wallet/wallet_screen.dart';
+import 'package:codecatalyst_ai/src/features/workspace/application/forge_workspace_controller.dart';
+import 'package:codecatalyst_ai/src/features/workspace/domain/forge_workspace_entities.dart';
+import 'package:codecatalyst_ai/src/features/workspace/domain/forge_workspace_state.dart';
+import 'package:codecatalyst_ai/src/shared/forge_models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -255,7 +255,7 @@ class _UiHarness {
   static _UiHarness create() {
     final account = AuthAccount(
       id: 'tester-1',
-      email: 'tester@forgeai.dev',
+      email: 'tester@codecatalystai.dev',
       displayName: 'Forge Tester',
       provider: AuthProviderKind.emailPassword,
       createdAt: DateTime(2026, 3, 1),
@@ -633,7 +633,7 @@ class _TestAuthRepository implements AuthRepository {
   Future<AuthAccount> signInWithProvider(AuthProviderKind provider) async {
     final account = AuthAccount(
       id: '${provider.name}-user',
-      email: '${provider.name}@forgeai.dev',
+      email: '${provider.name}@codecatalystai.dev',
       displayName: '${provider.label} User',
       provider: provider,
       createdAt: DateTime(2026, 3, 1),

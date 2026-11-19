@@ -1,5 +1,5 @@
 {
-  "name": "forgeai-launch",
+  "name": "codecatalystai-launch",
   "private": true,
   "scripts": {
     "build:functions": "npm --prefix functions run build",

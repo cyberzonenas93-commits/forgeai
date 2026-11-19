@@ -1,4 +1,4 @@
-# CodeCatalystAI Repo Instructions
+# CodeCatalystAi Repo Instructions
 
 ## Read This First
 Before touching runtime, repo context, validation, workspace, queueing, approvals, git follow-up, or agent UI, read these files in this order:
@@ -11,7 +11,7 @@ Before touching runtime, repo context, validation, workspace, queueing, approval
 If a proposed change conflicts with these files, update the files in the same pass or do not make the change.
 
 ## Project Mission
-CodeCatalystAI is a mobile-first coding-agent product.
+CodeCatalystAi is a mobile-first coding-agent product.
 
 It is not a chat assistant.
 It is not a suggestion engine.

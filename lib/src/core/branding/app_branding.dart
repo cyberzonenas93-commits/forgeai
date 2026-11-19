@@ -6,4 +6,4 @@
 /// Change this one value to rebrand without touching Firebase or IAP product IDs.
 library;
 
-const String kAppDisplayName = 'CodeCatalystAI';
+const String kAppDisplayName = 'CodeCatalystAi';

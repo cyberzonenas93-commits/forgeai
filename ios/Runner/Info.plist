@@ -7,7 +7,7 @@
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
-		<string>CodeCatalystAI</string>
+		<string>CodeCatalystAi</string>
 		<key>CFBundleExecutable</key>
 		<string>$(EXECUTABLE_NAME)</string>
 		<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 		<key>CFBundleInfoDictionaryVersion</key>
 		<string>6.0</string>
 		<key>CFBundleName</key>
-		<string>CodeCatalystAI</string>
+		<string>CodeCatalystAi</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
 		<key>CFBundleShortVersionString</key>
@@ -27,11 +27,11 @@
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
 		<key>NSPhotoLibraryUsageDescription</key>
-		<string>CodeCatalystAI uses the photo library so you can attach images to prompts.</string>
+		<string>CodeCatalystAi uses the photo library so you can attach images to prompts.</string>
 		<key>NSMicrophoneUsageDescription</key>
-		<string>CodeCatalystAI uses the microphone so you can dictate prompts as voice notes.</string>
+		<string>CodeCatalystAi uses the microphone so you can dictate prompts as voice notes.</string>
 		<key>NSSpeechRecognitionUsageDescription</key>
-		<string>CodeCatalystAI uses speech recognition to convert your voice notes into prompts.</string>
+		<string>CodeCatalystAi uses speech recognition to convert your voice notes into prompts.</string>
 		<key>GIDClientID</key>
 		<string>560540704761-2l7cj1v94jud4u7kelp9k1qkvgbt0t8v.apps.googleusercontent.com</string>
 		<key>CFBundleURLTypes</key>

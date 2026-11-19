@@ -1,5 +1,5 @@
 {
-  "identifier" : "CodeCatalystAI-StoreKit",
+  "identifier" : "CodeCatalystAi-StoreKit",
   "nonRenewingSubscriptions" : [
   ],
   "products" : [
@@ -9,7 +9,7 @@
       "internalID" : "tokens_small",
       "localizations" : [
         {
-          "description" : "100 CodeCatalystAI tokens",
+          "description" : "100 CodeCatalystAi tokens",
           "displayName" : "100 Tokens",
           "locale" : "en_US"
         }
@@ -24,7 +24,7 @@
       "internalID" : "tokens_medium",
       "localizations" : [
         {
-          "description" : "300 CodeCatalystAI tokens",
+          "description" : "300 CodeCatalystAi tokens",
           "displayName" : "300 Tokens",
           "locale" : "en_US"
         }
@@ -39,7 +39,7 @@
       "internalID" : "tokens_large",
       "localizations" : [
         {
-          "description" : "1000 CodeCatalystAI tokens",
+          "description" : "1000 CodeCatalystAi tokens",
           "displayName" : "1000 Tokens",
           "locale" : "en_US"
         }
@@ -56,11 +56,11 @@
       "id" : "forgeai_plans",
       "localizations" : [
         {
-          "displayName" : "CodeCatalystAI Plans",
+          "displayName" : "CodeCatalystAi Plans",
           "locale" : "en_US"
         }
       ],
-      "name" : "CodeCatalystAI Plans",
+      "name" : "CodeCatalystAi Plans",
       "subscriptions" : [
         {
           "adHocOffers" : [

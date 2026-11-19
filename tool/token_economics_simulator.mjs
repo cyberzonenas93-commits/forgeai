@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * CodeCatalystAI token economics simulator.
+ * CodeCatalystAi token economics simulator.
  * Validates margin assumptions for hybrid monetization (subscriptions + top-ups).
  * Run: npm run simulate:tokens (or node tool/token_economics_simulator.mjs)
  */
@@ -103,7 +103,7 @@ const scenarios = [
   },
 ];
 
-console.log('CodeCatalystAI token economics simulator');
+console.log('CodeCatalystAi token economics simulator');
 console.log(`Token value: $${appTokenValueUsd.toFixed(2)} | Apple cut: ${appleCutPercent}% | Target margin: ${marginTargetMultiplier}x`);
 console.log('');
 

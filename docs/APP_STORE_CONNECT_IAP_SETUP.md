@@ -7,13 +7,13 @@ Follow this in order. Use the exact **Product ID** and **Reference Name** values
 ## Prerequisites
 
 - Apple Developer account (enrolled).
-- Your app created in App Store Connect (e.g. **CodeCatalystAI** as the App Store name; bundle ID `com.angelonartey.forgeai` or whatever you use).
+- Your app created in App Store Connect (e.g. **CodeCatalystAi** as the App Store name; bundle ID `com.angelonartey.forgeai` or whatever you use).
 
 ---
 
 ## 1. App-Specific Shared Secret (for backend receipt validation)
 
-1. Go to [App Store Connect](https://appstoreconnect.apple.com) → **Apps** → select your app (e.g. CodeCatalystAI).
+1. Go to [App Store Connect](https://appstoreconnect.apple.com) → **Apps** → select your app (e.g. CodeCatalystAi).
 2. In the left sidebar, open **App Information** (under **General**).
 3. Scroll to **App-Specific Shared Secret**.
 4. Click **Generate** (or **Manage** if one exists) and copy the secret. You’ll use it in step 6.
@@ -25,7 +25,7 @@ Follow this in order. Use the exact **Product ID** and **Reference Name** values
 
 1. In App Store Connect, with your app selected, go to **Features** → **In-App Purchases** (or **Subscriptions** in older UI).
 2. Click **+** or **Create** to add a **Subscription Group**.
-   - **Reference Name:** `CodeCatalystAI Plans` (or any internal label; product IDs must still match the table below)
+   - **Reference Name:** `CodeCatalystAi Plans` (or any internal label; product IDs must still match the table below)
    - Create the group.
 
 3. **Add first subscription (Pro):**
@@ -135,4 +135,4 @@ npx firebase deploy --only functions:syncPurchase
 | Consumable  | com.forgeai.app.tokens.medium          | $14.99  |
 | Consumable  | com.forgeai.app.tokens.large           | $34.99  |
 
-These must match exactly what’s in the app and in `ios/CodeCatalystAI.storekit` (simulator).
+These must match exactly what’s in the app and in `ios/CodeCatalystAi.storekit` (simulator).
